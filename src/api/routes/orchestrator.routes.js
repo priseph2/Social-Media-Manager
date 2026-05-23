@@ -2,7 +2,9 @@
 
 const { Router } = require('express');
 const orchestrator = require('../../orchestrator/orchestrator');
+const { enqueue } = require('../../orchestrator/message-queue');
 const { authenticate } = require('../middleware/auth');
+const { QUEUES, PRIORITY } = require('../../config/constants');
 
 const router = Router();
 router.use(authenticate);
@@ -43,6 +45,33 @@ router.post('/email-campaign', async (req, res, next) => {
   try {
     const job = await orchestrator.createEmailCampaign(req.body);
     res.json({ success: true, jobId: job?.id, message: 'Email campaign queued' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/orchestrator/adapt-content
+ * Adapt a piece of content for all social platforms.
+ * Body: { originalContent, originalPlatform, targetPlatforms? }
+ */
+router.post('/adapt-content', async (req, res, next) => {
+  try {
+    const job = await enqueue(QUEUES.SOCIAL, 'adapt-cross-platform', req.body, { priority: PRIORITY.NORMAL });
+    res.json({ success: true, jobId: job?.id, message: 'Cross-platform adaptation queued' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/orchestrator/generate-subject-lines
+ * Generate A/B test subject lines for an email campaign.
+ */
+router.post('/generate-subject-lines', async (req, res, next) => {
+  try {
+    const job = await enqueue(QUEUES.EMAIL, 'generate-subject-lines', req.body, { priority: PRIORITY.NORMAL });
+    res.json({ success: true, jobId: job?.id, message: 'Subject line generation queued' });
   } catch (err) {
     next(err);
   }

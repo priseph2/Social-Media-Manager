@@ -14,6 +14,7 @@ const { errorHandler } = require('./api/middleware/error-handler');
 const orchestratorRoutes = require('./api/routes/orchestrator.routes');
 const contentRoutes = require('./api/routes/content.routes');
 const webhookRoutes = require('./api/routes/webhooks.routes');
+const analyticsRoutes = require('./api/routes/analytics.routes');
 
 const app = express();
 
@@ -37,6 +38,7 @@ app.get('/health', (req, res) => {
 // ── Routes ───────────────────────────────────────────────────────────────────
 app.use('/api/orchestrator', orchestratorRoutes);
 app.use('/api/content', contentRoutes);
+app.use('/api/analytics', analyticsRoutes);
 app.use('/webhooks', webhookRoutes);
 
 // ── 404 ──────────────────────────────────────────────────────────────────────
