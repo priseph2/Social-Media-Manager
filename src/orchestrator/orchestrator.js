@@ -124,7 +124,7 @@ class Orchestrator {
       await fetch(webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ source: 'Cascades Luxury AI', ...payload }),
+        body: JSON.stringify({ source: 'AI Social Media Manager', ...payload }),
       });
       this.log.info('Human manager notified via webhook', { type: payload.type });
     } catch (err) {

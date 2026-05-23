@@ -59,9 +59,10 @@ class AnalyticsMonitor extends BaseSkill {
 
   async aggregateDailyMetrics(job) {
     const date = new Date(job.data.date || Date.now());
-    this.log.info(`Aggregating daily metrics for ${date.toISOString().split('T')[0]}`, { jobId: job.id });
+    const tenantId = job.data.tenantId || null;
+    this.log.info(`Aggregating daily metrics for ${date.toISOString().split('T')[0]}`, { jobId: job.id, tenantId });
 
-    const aggregated = await aggregateAll(date);
+    const aggregated = await aggregateAll(date, tenantId);
 
     // Persist to MongoDB by channel
     if (isMongoAvailable()) {
@@ -87,7 +88,7 @@ class AnalyticsMonitor extends BaseSkill {
     await this._persistToSupabase(date, aggregated);
 
     // Detect anomalies vs 7-day rolling average
-    const history = await getHistoricalMetrics(7);
+    const history = await getHistoricalMetrics(7, null, tenantId);
     const rolling = calculateRollingAverages(
       history.reduce((acc, m) => {
         const dateKey = m.date?.toISOString?.()?.split('T')[0] || '';
@@ -118,11 +119,12 @@ class AnalyticsMonitor extends BaseSkill {
 
   async generateReport(job) {
     const { period = 'Last 7 days', type = 'weekly', includeText = true } = job.data;
-    this.log.info(`Generating ${type} report: ${period}`, { jobId: job.id });
+    const tenantId = job.data.tenantId || null;
+    this.log.info(`Generating ${type} report: ${period}`, { jobId: job.id, tenantId });
 
     // Pull recent aggregated data
     const days = type === 'monthly' ? 30 : 7;
-    const history = await getHistoricalMetrics(days);
+    const history = await getHistoricalMetrics(days, null, tenantId);
 
     // Group metrics by date for the report
     const metricsByDate = history.reduce((acc, m) => {
@@ -164,8 +166,9 @@ class AnalyticsMonitor extends BaseSkill {
 
   async forecastPerformance(job) {
     const { period = '30 days' } = job.data;
-    this.log.info(`Generating ${period} forecast`, { jobId: job.id });
-    const history = await getHistoricalMetrics(60);
+    const tenantId = job.data.tenantId || null;
+    this.log.info(`Generating ${period} forecast`, { jobId: job.id, tenantId });
+    const history = await getHistoricalMetrics(60, null, tenantId);
     const forecast = await generateForecast(history, period);
     return { ...forecast, period, jobId: job.id };
   }

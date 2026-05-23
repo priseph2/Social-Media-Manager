@@ -11,12 +11,37 @@ interface Integration { id: string; name: string; desc: string; category: string
 const INTEGRATIONS: Integration[] = [
   { id: 'buffer', name: 'Buffer', desc: 'Social media scheduling', category: 'Social', fields: [{ key: 'accessToken', label: 'Access Token', type: 'password' }] },
   { id: 'mailchimp', name: 'Mailchimp', desc: 'Email marketing', category: 'Email', fields: [{ key: 'apiKey', label: 'API Key', type: 'password' }, { key: 'serverPrefix', label: 'Server Prefix (e.g. us1)', type: 'text' }] },
-  { id: 'ecommerce', name: 'E-commerce', desc: 'Shopify, WooCommerce, BigCommerce, Wix', category: 'Store', isEcommerce: true, fields: [{ key: 'accessToken', label: 'Access Token / API Key', type: 'password' }, { key: 'storeUrl', label: 'Store URL (Shopify: your-store.myshopify.com)', type: 'text' }] },
+  { id: 'ecommerce', name: 'E-commerce', desc: 'Shopify, WooCommerce, BigCommerce, Wix', category: 'Store', isEcommerce: true, fields: [] },
   { id: 'meta', name: 'Meta / Instagram', desc: 'Facebook & Instagram API', category: 'Social', fields: [{ key: 'accessToken', label: 'Access Token', type: 'password' }, { key: 'pageId', label: 'Page ID', type: 'text' }] },
-  { id: 'ga4', name: 'Google Analytics 4', desc: 'Website analytics', category: 'Analytics', fields: [{ key: 'propertyId', label: 'Property ID', type: 'text' }] },
+  { id: 'ga4', name: 'Google Analytics 4', desc: 'Website analytics', category: 'Analytics', fields: [
+    { key: 'propertyId', label: 'Property ID (numeric)', type: 'text' },
+    { key: 'clientEmail', label: 'Service Account Email', type: 'text' },
+    { key: 'privateKey', label: 'Service Account Private Key (PEM)', type: 'password' },
+  ] },
 ];
 
 const ECOMMERCE_PLATFORMS = ['shopify', 'woocommerce', 'bigcommerce', 'wix'];
+
+const ECOMMERCE_FIELDS: Record<string, IntegrationField[]> = {
+  shopify: [
+    { key: 'storeUrl', label: 'Store URL (e.g. my-store.myshopify.com)', type: 'text' },
+    { key: 'accessToken', label: 'Admin API Access Token', type: 'password' },
+  ],
+  woocommerce: [
+    { key: 'siteUrl', label: 'Site URL (e.g. https://mystore.com)', type: 'text' },
+    { key: 'consumerKey', label: 'Consumer Key (ck_…)', type: 'text' },
+    { key: 'consumerSecret', label: 'Consumer Secret (cs_…)', type: 'password' },
+  ],
+  bigcommerce: [
+    { key: 'storeHash', label: 'Store Hash (from API path)', type: 'text' },
+    { key: 'accessToken', label: 'Access Token', type: 'password' },
+  ],
+  wix: [
+    { key: 'siteId', label: 'Site ID', type: 'text' },
+    { key: 'accountId', label: 'Account ID (optional)', type: 'text' },
+    { key: 'accessToken', label: 'API Key / Access Token', type: 'password' },
+  ],
+};
 
 export default function IntegrationsPage() {
   const supabase = createClient();
@@ -98,7 +123,7 @@ export default function IntegrationsPage() {
                       </select>
                     </div>
                   )}
-                  {integration.fields.map((field) => (
+                  {(integration.isEcommerce ? (ECOMMERCE_FIELDS[platformType] ?? []) : integration.fields).map((field) => (
                     <div key={field.key} className="mb-3">
                       <label className="block text-sm font-medium text-slate-600 mb-1">{field.label}</label>
                       <input
