@@ -54,6 +54,28 @@ const DailyContentRequestSchema = z.object({
   date: z.string().optional(),
 });
 
+const TikTokScriptRequestSchema = z.object({
+  type: z.literal('tiktok_script'),
+  platform: z.enum(['tiktok', 'reels', 'shorts']),
+  theme: z.string().min(3),
+  product: z.string().optional(),
+  duration: z.enum(['15s', '30s', '45s', '60s', '90s', '3min']).optional().default('45s'),
+  contentPillar: z.enum(['education', 'entertainment', 'inspiration', 'product_showcase', 'behind_the_scenes', 'trend_participation']).optional(),
+  tone: z.string().optional(),
+  targetAudience: z.string().optional(),
+});
+
+const ImageBriefRequestSchema = z.object({
+  type: z.literal('image_brief'),
+  platform: z.enum(['instagram', 'facebook', 'tiktok', 'linkedin', 'pinterest', 'website', 'email']),
+  format: z.enum(['feed_square', 'feed_portrait', 'story', 'cover', 'ad_banner', 'email_header']).optional().default('feed_square'),
+  concept: z.string().min(5),
+  product: z.string().optional(),
+  mood: z.string().optional(),
+  copyOverlay: z.string().optional(),
+  numberOfVariants: z.number().min(1).max(4).optional().default(1),
+});
+
 const ContentRequestSchema = z.discriminatedUnion('type', [
   SocialCaptionRequestSchema,
   EmailCampaignRequestSchema,
@@ -61,6 +83,8 @@ const ContentRequestSchema = z.discriminatedUnion('type', [
   ProductDescriptionRequestSchema,
   ContentCalendarRequestSchema,
   DailyContentRequestSchema,
+  TikTokScriptRequestSchema,
+  ImageBriefRequestSchema,
 ]);
 
 function validateRequest(data) {
@@ -72,4 +96,4 @@ function validateRequest(data) {
   return result.data;
 }
 
-module.exports = { validateRequest };
+module.exports = { validateRequest, TikTokScriptRequestSchema, ImageBriefRequestSchema };

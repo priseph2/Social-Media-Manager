@@ -7,7 +7,7 @@ const contentSchema = new mongoose.Schema(
     tenantId: { type: String, index: true },
     type: {
       type: String,
-      enum: ['social_caption', 'email_campaign', 'blog_post', 'product_description', 'content_calendar', 'customer_response'],
+      enum: ['social_caption', 'email_campaign', 'blog_post', 'product_description', 'content_calendar', 'customer_response', 'tiktok_script', 'image_brief'],
       required: true,
     },
     platform: { type: String },

@@ -55,6 +55,7 @@ module.exports = {
     TIKTOK: 'tiktok',
     TWITTER: 'twitter',
     PINTEREST: 'pinterest',
+    WHATSAPP: 'whatsapp',
   },
 
   // ── Content types ──────────────────────────────────────────────────────────
@@ -65,6 +66,8 @@ module.exports = {
     PRODUCT_DESCRIPTION: 'product_description',
     CONTENT_CALENDAR: 'content_calendar',
     CUSTOMER_RESPONSE: 'customer_response',
+    TIKTOK_SCRIPT: 'tiktok_script',
+    IMAGE_BRIEF: 'image_brief',
   },
 
   // ── Brand quality thresholds ───────────────────────────────────────────────

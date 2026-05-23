@@ -182,6 +182,135 @@ const CONTENT_CALENDAR_TOOL = {
   },
 };
 
+// ── TikTok / Reels / Shorts script tool ──────────────────────────────────────
+
+const TIKTOK_SCRIPT_TOOL = {
+  name: 'submit_tiktok_script',
+  description: 'Submit a complete short-form video script for TikTok, Instagram Reels, or YouTube Shorts',
+  input_schema: {
+    type: 'object',
+    properties: {
+      hook: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', description: 'First spoken line or on-screen text — delivered within 3 seconds' },
+          visualAction: { type: 'string', description: 'What is happening on screen during the hook' },
+          hookType: { type: 'string', enum: ['question', 'shock', 'story', 'trend', 'controversy', 'tutorial'] },
+        },
+        required: ['text', 'visualAction', 'hookType'],
+      },
+      scenes: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            sceneNumber: { type: 'number' },
+            duration: { type: 'string', description: 'Timestamp range e.g. "0:03-0:08"' },
+            action: { type: 'string', description: 'What is visually happening on screen' },
+            dialogue: { type: 'string', description: 'Spoken words or on-screen text overlay' },
+            transition: { type: 'string', description: 'How this scene transitions to the next' },
+          },
+          required: ['sceneNumber', 'duration', 'action', 'dialogue', 'transition'],
+        },
+      },
+      totalDuration: { type: 'string', description: 'Total video length e.g. "0:45"' },
+      captions: {
+        type: 'array',
+        description: 'Three caption variants for the post',
+        minItems: 3,
+        maxItems: 3,
+        items: { type: 'string' },
+      },
+      hashtags: {
+        type: 'array',
+        description: '10-15 hashtags mixing niche + trending',
+        minItems: 10,
+        maxItems: 15,
+        items: { type: 'string' },
+      },
+      trendingAudioSuggestion: { type: 'string', description: 'Describe vibe/tempo/genre to search for — no specific tracks' },
+      cta: { type: 'string', description: 'End-of-video call to action' },
+      productionNotes: { type: 'string', description: 'Lighting, setting, props, camera angles, b-roll suggestions' },
+      contentPillar: {
+        type: 'string',
+        enum: ['education', 'entertainment', 'inspiration', 'product_showcase', 'behind_the_scenes', 'trend_participation'],
+      },
+    },
+    required: ['hook', 'scenes', 'totalDuration', 'captions', 'hashtags', 'cta', 'contentPillar'],
+  },
+};
+
+// ── Designer / Canva image brief tool ────────────────────────────────────────
+
+const IMAGE_BRIEF_TOOL = {
+  name: 'submit_image_brief',
+  description: 'Submit a detailed image brief for designer or Canva handoff',
+  input_schema: {
+    type: 'object',
+    properties: {
+      format: {
+        type: 'object',
+        properties: {
+          dimensions: { type: 'string', description: 'Pixel dimensions e.g. "1080x1080"' },
+          aspectRatio: { type: 'string', description: 'e.g. "1:1", "9:16"' },
+          platform: { type: 'string', description: 'e.g. "Instagram Feed", "Instagram Story"' },
+          fileType: { type: 'string', description: 'e.g. "PNG", "JPG"' },
+        },
+        required: ['dimensions', 'aspectRatio', 'platform', 'fileType'],
+      },
+      concept: { type: 'string', description: 'Core visual idea in one sentence' },
+      moodKeywords: {
+        type: 'array',
+        description: '5-8 adjectives defining tone and aesthetic',
+        minItems: 5,
+        maxItems: 8,
+        items: { type: 'string' },
+      },
+      colorPalette: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            role: { type: 'string', description: 'e.g. "primary", "accent", "background"' },
+            color: { type: 'string', description: 'Hex code or descriptive name' },
+            usage: { type: 'string', description: 'Where this colour is applied' },
+          },
+          required: ['role', 'color', 'usage'],
+        },
+      },
+      typography: {
+        type: 'object',
+        properties: {
+          headline: { type: 'string', description: 'Font style for main headline' },
+          body: { type: 'string', description: 'Font style for body copy' },
+          copyOverlay: { type: 'string', description: 'Exact text to appear on the image' },
+        },
+        required: ['headline', 'body', 'copyOverlay'],
+      },
+      visualElements: { type: 'array', items: { type: 'string' }, description: 'Props, backgrounds, textures, overlays' },
+      photographyOrIllustration: {
+        type: 'string',
+        enum: ['photography', 'illustration', 'mixed', 'graphic_design', 'ugc_style'],
+      },
+      compositionNotes: { type: 'string', description: 'Layout, framing, focal point guidance' },
+      brandElements: {
+        type: 'object',
+        properties: {
+          logoPlacement: { type: 'string' },
+          brandColors: { type: 'boolean' },
+          tagline: { type: 'string' },
+        },
+        required: ['logoPlacement', 'brandColors'],
+      },
+      referenceStyle: { type: 'string', description: 'Aesthetic references without copyrighted works' },
+      canvaTemplateCategory: { type: 'string', description: 'Canva search term to start from' },
+      priority: { type: 'string', enum: ['hero', 'supporting', 'story', 'ad'] },
+      designerNotes: { type: 'string', description: 'Special instructions and accessibility notes' },
+    },
+    required: ['format', 'concept', 'moodKeywords', 'colorPalette', 'typography', 'photographyOrIllustration', 'compositionNotes'],
+  },
+};
+
 module.exports = {
   BASE_SYSTEM,
   guidelinesContext,
@@ -190,4 +319,6 @@ module.exports = {
   BLOG_POST_TOOL,
   PRODUCT_DESCRIPTION_TOOL,
   CONTENT_CALENDAR_TOOL,
+  TIKTOK_SCRIPT_TOOL,
+  IMAGE_BRIEF_TOOL,
 };

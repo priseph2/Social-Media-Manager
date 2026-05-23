@@ -7,7 +7,81 @@ const { getSupabaseClient } = require('../../services/database/supabase-client')
 const { QUEUES, PRIORITY } = require('../../config/constants');
 const logger = require('../../utils/logger');
 
+const whatsappApi = require('../../services/api-clients/whatsapp-api');
+
 const router = Router();
+
+// ── WhatsApp Business API ──────────────────────────────────────────────────
+
+/**
+ * GET /webhooks/whatsapp — Meta verification challenge
+ * POST /webhooks/whatsapp — Incoming messages
+ */
+router.get('/whatsapp', (req, res) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+  if (mode === 'subscribe' && token === process.env.WHATSAPP_VERIFY_TOKEN) {
+    logger.info('WhatsApp webhook verified');
+    return res.status(200).send(challenge);
+  }
+  res.sendStatus(403);
+});
+
+router.post('/whatsapp', async (req, res) => {
+  // Always ack immediately — Meta requires 200 within 20s
+  res.sendStatus(200);
+
+  try {
+    const entry = req.body?.entry;
+    if (!Array.isArray(entry)) return;
+
+    for (const e of entry) {
+      for (const change of e.changes || []) {
+        if (change.field !== 'messages') continue;
+
+        const value = change.value || {};
+        const messages = value.messages || [];
+        const contacts = value.contacts || [];
+        const phoneNumberId = value.metadata?.phone_number_id;
+
+        // Resolve tenant from the receiving phone number ID
+        const tenantId = await resolveTenantByPhoneNumberId(phoneNumberId).catch(() => null);
+
+        for (const msg of messages) {
+          // Only handle inbound text messages for now
+          if (msg.type !== 'text' || !msg.text?.body) continue;
+
+          const from = msg.from; // sender's phone number (E.164 without +)
+          const contact = contacts.find((c) => c.wa_id === from);
+          const customerName = contact?.profile?.name || null;
+
+          // Mark as read (best-effort)
+          if (whatsappApi.isConfigured()) {
+            whatsappApi.markRead(msg.id, tenantId).catch(() => {});
+          }
+
+          logger.info('WhatsApp message received', { from, tenantId });
+
+          await enqueue(
+            QUEUES.CUSTOMER_SERVICE,
+            'handle-inquiry',
+            {
+              tenantId,
+              customerMessage: msg.text.body,
+              channel: 'whatsapp',
+              customerId: from,
+              customerName,
+            },
+            { priority: PRIORITY.HIGH }
+          ).catch((err) => logger.error('Failed to enqueue WhatsApp inquiry', { error: err.message }));
+        }
+      }
+    }
+  } catch (err) {
+    logger.error('WhatsApp webhook processing error', { error: err.message });
+  }
+});
 
 // ── Shopify ────────────────────────────────────────────────────────────────
 
@@ -216,6 +290,24 @@ async function resolveTenantByShopDomain(shopDomain) {
     .filter('credentials->>storeUrl', 'ilike', `%${normalised}%`)
     .maybeSingle();
 
+  if (error || !data) return null;
+  return data.tenant_id;
+}
+
+/**
+ * Resolves a tenant from the WhatsApp phone number ID stored in tenant_credentials
+ * (service = 'whatsapp', credentials->phoneNumberId).
+ */
+async function resolveTenantByPhoneNumberId(phoneNumberId) {
+  if (!phoneNumberId) return null;
+  const supabase = getSupabaseClient();
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from('tenant_credentials')
+    .select('tenant_id')
+    .eq('service', 'whatsapp')
+    .filter('credentials->>phoneNumberId', 'eq', phoneNumberId)
+    .maybeSingle();
   if (error || !data) return null;
   return data.tenant_id;
 }

@@ -4,22 +4,39 @@ const BaseSkill = require('../base-skill');
 const { createMessage, cachedSystemBlock, extractToolInput } = require('../../services/anthropic-client');
 const { SKILLS, MODELS, PRIORITY } = require('../../config/constants');
 const { eventBus, EVENTS } = require('../../services/messaging/event-emitter');
-const BRAND_GUIDELINES = require('../../config/brand-guidelines');
+const { getBrandConfig } = require('../../services/brand-config');
+const whatsappApi = require('../../services/api-clients/whatsapp-api');
+const tidioApi = require('../../services/api-clients/tidio-api');
+const logger = require('../../utils/logger');
 
-const CS_SYSTEM = `You are the Customer Service Agent for Cascades Luxury — the warmest, most knowledgeable voice the brand has.
+// ── System prompt factory ─────────────────────────────────────────────────────
+
+function buildCsSystem(brandConfig) {
+  const brandName = brandConfig?.identity?.name || 'the brand';
+  const voice = brandConfig?.voice || {};
+  const tone = voice.tone || 'warm, professional, and helpful';
+  const doList = voice.doList?.map((d) => `  • ${d}`).join('\n') || '';
+  const dontList = voice.dontList?.map((d) => `  • ${d}`).join('\n') || '';
+
+  return `You are the Customer Service Agent for ${brandName} — the warmest, most knowledgeable voice the brand has.
 
 You handle customer inquiries across Instagram DMs, WhatsApp, email, and website chat.
 
-Your personality: You are like a personal luxury shopping advisor. You are warm, patient, and genuinely helpful.
+Your personality: You are like a personal shopping advisor for ${brandName}. You are ${tone}.
 You know every product intimately. You resolve problems gracefully without making the customer feel like a burden.
 
-Tone: Elevated warmth. Never robotic. Never pushy. Never dismissive.
+Tone: ${tone}. Never robotic. Never pushy. Never dismissive.
 Goal: Resolve the inquiry in one response if possible. Create loyalty, not just satisfaction.
+${doList ? `\nDO:\n${doList}` : ''}
+${dontList ? `\nDO NOT:\n${dontList}` : ''}
 
 Escalation rules:
 - ALWAYS escalate: angry customers, refund/return requests, legal/compliance questions, stock complaints
 - NEVER promise what you cannot guarantee (delivery dates, specific stock arrival)
 - ALWAYS maintain brand tone even when a customer is difficult`;
+}
+
+// ── Tool schema ───────────────────────────────────────────────────────────────
 
 const RESPONSE_TOOL = {
   name: 'submit_customer_response',
@@ -44,21 +61,11 @@ const RESPONSE_TOOL = {
   },
 };
 
-/**
- * SKILL 4: Customer Service Agent
- * Status: CORE LOGIC IMPLEMENTED — multi-channel handler pending API keys.
- *
- * Job types handled:
- *   - handle-inquiry   → responds to a customer message
- *   - update-faq       → adds new Q&A pairs to the knowledge base
- */
+// ── Skill ─────────────────────────────────────────────────────────────────────
+
 class CustomerServiceAgent extends BaseSkill {
   constructor() {
     super(SKILLS.CUSTOMER_SERVICE);
-    this._guidelinesText = JSON.stringify({
-      voice: BRAND_GUIDELINES.voice,
-      identity: BRAND_GUIDELINES.identity,
-    });
   }
 
   async execute(job) {
@@ -73,10 +80,18 @@ class CustomerServiceAgent extends BaseSkill {
   }
 
   async handleInquiry(job) {
-    const { customerMessage, channel, customerName, customerHistory, sentiment } = job.data;
+    const {
+      customerMessage, channel, customerName, customerHistory, sentiment,
+      tidioConversationId, customerId, tenantId,
+    } = job.data;
+
     this.log.info(`Handling inquiry via ${channel}`, { jobId: job.id });
 
-    // Pre-detect anger to bump priority before Claude processes
+    const brandConfig = await getBrandConfig(tenantId || null);
+    const systemPrompt = buildCsSystem(brandConfig);
+    const brandContext = JSON.stringify({ identity: brandConfig?.identity, voice: brandConfig?.voice });
+
+    // Pre-detect anger to bump priority
     if (sentiment === 'angry' || /refund|scam|fake|terrible|disgusting|worst/i.test(customerMessage)) {
       this.log.warn('Angry customer detected — escalating immediately', { jobId: job.id });
       eventBus.publish(EVENTS.NEGATIVE_SENTIMENT, { channel, customerMessage: customerMessage.substring(0, 200) });
@@ -89,18 +104,13 @@ class CustomerServiceAgent extends BaseSkill {
     ].join('\n');
 
     const response = await createMessage({
-      model: MODELS.FAST, // Haiku for speed — customer service needs fast response
+      model: MODELS.FAST,
       maxTokens: 800,
       system: [
-        cachedSystemBlock(CS_SYSTEM),
-        cachedSystemBlock(`BRAND CONTEXT:\n${this._guidelinesText}`),
+        cachedSystemBlock(systemPrompt),
+        cachedSystemBlock(`BRAND CONTEXT:\n${brandContext}`),
       ],
-      messages: [
-        {
-          role: 'user',
-          content: `${context}\n\nCUSTOMER MESSAGE:\n"${customerMessage}"`,
-        },
-      ],
+      messages: [{ role: 'user', content: `${context}\n\nCUSTOMER MESSAGE:\n"${customerMessage}"` }],
       tools: [RESPONSE_TOOL],
       label: `Customer Service (${channel})`,
     });
@@ -119,6 +129,11 @@ class CustomerServiceAgent extends BaseSkill {
       });
     }
 
+    // Send response back to the originating channel
+    if (output.response && !output.escalate) {
+      await this._sendResponse({ channel, customerId, response: output.response, tidioConversationId, tenantId });
+    }
+
     return {
       response: output.response,
       intent: output.intent,
@@ -134,9 +149,31 @@ class CustomerServiceAgent extends BaseSkill {
     };
   }
 
+  async _sendResponse({ channel, customerId, response, tidioConversationId, tenantId }) {
+    try {
+      if (channel === 'whatsapp' && customerId) {
+        if (whatsappApi.isConfigured()) {
+          await whatsappApi.sendTextMessage(customerId, response, tenantId);
+          this.log.info('WhatsApp reply sent', { to: customerId });
+        } else {
+          this.log.warn('WhatsApp not configured — response not sent', { customerId });
+        }
+      } else if ((channel === 'website' || channel === 'tidio') && tidioConversationId) {
+        if (tidioApi.isConfigured()) {
+          await tidioApi.sendMessage(tidioConversationId, response);
+          this.log.info('Tidio reply sent', { conversationId: tidioConversationId });
+        } else {
+          this.log.warn('Tidio not configured — response not sent', { tidioConversationId });
+        }
+      }
+      // instagram_dm, facebook — replies go through Meta Graph API (future phase)
+    } catch (err) {
+      logger.error('Failed to send CS response to channel', { channel, error: err.message });
+    }
+  }
+
   async updateFAQ(job) {
     this.log.info('Updating FAQ knowledge base', { jobId: job.id });
-    // TODO (Phase 4): Store in Supabase faq table, used as context for future responses
     return { status: 'pending_implementation', jobId: job.id };
   }
 }

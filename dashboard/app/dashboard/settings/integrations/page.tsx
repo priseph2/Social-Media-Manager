@@ -18,6 +18,14 @@ const INTEGRATIONS: Integration[] = [
     { key: 'clientEmail', label: 'Service Account Email', type: 'text' },
     { key: 'privateKey', label: 'Service Account Private Key (PEM)', type: 'password' },
   ] },
+  { id: 'whatsapp', name: 'WhatsApp Business', desc: 'Customer service via WhatsApp Cloud API', category: 'Messaging', fields: [
+    { key: 'token', label: 'WhatsApp Access Token', type: 'password' },
+    { key: 'phoneNumberId', label: 'Phone Number ID', type: 'text' },
+    { key: 'verifyToken', label: 'Webhook Verify Token (choose any string)', type: 'text' },
+  ] },
+  { id: 'tidio', name: 'Tidio Live Chat', desc: 'Website chat & customer service', category: 'Messaging', fields: [
+    { key: 'apiKey', label: 'Tidio API Key', type: 'password' },
+  ] },
 ];
 
 const ECOMMERCE_PLATFORMS = ['shopify', 'woocommerce', 'bigcommerce', 'wix'];

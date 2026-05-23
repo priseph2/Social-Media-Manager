@@ -11,6 +11,8 @@ const {
   BLOG_POST_TOOL,
   PRODUCT_DESCRIPTION_TOOL,
   CONTENT_CALENDAR_TOOL,
+  TIKTOK_SCRIPT_TOOL,
+  IMAGE_BRIEF_TOOL,
 } = require('./prompts');
 const { enqueue } = require('../../orchestrator/message-queue');
 const { SKILLS, QUEUES, PRIORITY, MODELS } = require('../../config/constants');
@@ -47,6 +49,12 @@ class ContentGenerator extends BaseSkill {
         break;
       case 'daily_content':
         result = await this.generateDailyContent(validated, job.id, brandConfig);
+        break;
+      case 'tiktok_script':
+        result = await this.generateTikTokScript(validated, job.id, brandConfig);
+        break;
+      case 'image_brief':
+        result = await this.generateImageBrief(validated, job.id, brandConfig);
         break;
       default:
         throw new Error(`Unknown content type: ${validated.type}`);
@@ -303,6 +311,124 @@ class ContentGenerator extends BaseSkill {
       instagram: instagramResult,
       facebook: facebookResult,
       selectedContent: instagramResult.selectedContent,
+      jobId,
+    };
+  }
+
+  async generateTikTokScript(data, jobId, brandConfig) {
+    const brandName = brandConfig?.identity?.name || 'the brand';
+    const platform = data.platform === 'reels' ? 'Instagram Reels' : data.platform === 'shorts' ? 'YouTube Shorts' : 'TikTok';
+    this.log.info(`Generating ${platform} script`, { jobId });
+
+    const prompt = [
+      `Write a ${data.duration || '45s'} ${platform} video script for ${brandName}.`,
+      `Theme: ${data.theme}`,
+      data.product ? `Product/focus: ${data.product}` : '',
+      data.contentPillar ? `Content pillar: ${data.contentPillar}` : '',
+      data.tone ? `Desired tone: ${data.tone}` : '',
+      data.targetAudience ? `Target audience: ${data.targetAudience}` : '',
+      '',
+      'The script MUST:',
+      '• Open with a scroll-stopping hook in the first 3 seconds',
+      '• Have tight, punchy scenes — each scene maximum 8-10 seconds',
+      `• Fit the ${platform} format and algorithm`,
+      '• Feel authentic, not like an ad — even if promoting a product',
+      '• End with a clear, specific CTA',
+      '• Include practical production notes a non-professional creator can follow',
+    ].filter(Boolean).join('\n');
+
+    const response = await createMessage({
+      model: MODELS.PRIMARY,
+      maxTokens: 3000,
+      system: [cachedSystemBlock(BASE_SYSTEM), this._guidelinesBlock(brandConfig)],
+      messages: [{ role: 'user', content: prompt }],
+      tools: [TIKTOK_SCRIPT_TOOL],
+      label: `Content Generator: ${platform} script`,
+    });
+
+    const output = extractToolInput(response);
+    if (!output) throw new Error('Content Generator did not return a TikTok script');
+
+    return {
+      type: 'tiktok_script',
+      platform: data.platform,
+      input: data,
+      hook: output.hook,
+      scenes: output.scenes,
+      totalDuration: output.totalDuration,
+      captions: output.captions,
+      hashtags: output.hashtags,
+      trendingAudioSuggestion: output.trendingAudioSuggestion,
+      cta: output.cta,
+      productionNotes: output.productionNotes,
+      contentPillar: output.contentPillar,
+      selectedContent: output.captions?.[0] || '',
+      jobId,
+    };
+  }
+
+  async generateImageBrief(data, jobId, brandConfig) {
+    const brandName = brandConfig?.identity?.name || 'the brand';
+    this.log.info(`Generating image brief for ${data.platform}`, { jobId });
+
+    const FORMAT_DIMENSIONS = {
+      feed_square: { dimensions: '1080x1080', aspectRatio: '1:1' },
+      feed_portrait: { dimensions: '1080x1350', aspectRatio: '4:5' },
+      story: { dimensions: '1080x1920', aspectRatio: '9:16' },
+      cover: { dimensions: '1500x500', aspectRatio: '3:1' },
+      ad_banner: { dimensions: '1200x628', aspectRatio: '1.91:1' },
+      email_header: { dimensions: '600x200', aspectRatio: '3:1' },
+    };
+    const dims = FORMAT_DIMENSIONS[data.format || 'feed_square'];
+
+    const brandColors = brandConfig?.identity?.colors?.length
+      ? `Brand colours: ${brandConfig.identity.colors.join(', ')}`
+      : '';
+
+    const prompt = [
+      `Create a detailed image brief for ${brandName}.`,
+      `Platform: ${data.platform} | Format: ${data.format || 'feed_square'} (${dims.dimensions})`,
+      `Concept: ${data.concept}`,
+      data.product ? `Product featured: ${data.product}` : '',
+      data.mood ? `Desired mood: ${data.mood}` : '',
+      data.copyOverlay ? `Text to appear on image: "${data.copyOverlay}"` : '',
+      data.numberOfVariants && data.numberOfVariants > 1 ? `Produce ${data.numberOfVariants} variant briefs` : '',
+      brandColors,
+      '',
+      'The brief must be specific enough that a designer can start in Canva immediately.',
+      'Include exact hex codes where possible, specific element placements, and a practical Canva template suggestion.',
+    ].filter(Boolean).join('\n');
+
+    const response = await createMessage({
+      model: MODELS.PRIMARY,
+      maxTokens: 2500,
+      system: [cachedSystemBlock(BASE_SYSTEM), this._guidelinesBlock(brandConfig)],
+      messages: [{ role: 'user', content: prompt }],
+      tools: [IMAGE_BRIEF_TOOL],
+      label: `Content Generator: image brief (${data.platform})`,
+    });
+
+    const output = extractToolInput(response);
+    if (!output) throw new Error('Content Generator did not return an image brief');
+
+    return {
+      type: 'image_brief',
+      platform: data.platform,
+      input: data,
+      format: output.format,
+      concept: output.concept,
+      moodKeywords: output.moodKeywords,
+      colorPalette: output.colorPalette,
+      typography: output.typography,
+      visualElements: output.visualElements || [],
+      photographyOrIllustration: output.photographyOrIllustration,
+      compositionNotes: output.compositionNotes,
+      brandElements: output.brandElements,
+      referenceStyle: output.referenceStyle,
+      canvaTemplateCategory: output.canvaTemplateCategory,
+      priority: output.priority,
+      designerNotes: output.designerNotes,
+      selectedContent: output.concept,
       jobId,
     };
   }
