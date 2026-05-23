@@ -1,23 +1,47 @@
 'use strict';
 
-const BRAND_GUIDELINES = require('../../config/brand-guidelines');
+// Generic system prompt — same for all tenants, benefits from Anthropic prompt caching
+const BASE_SYSTEM = `You are an expert content creator for a premium brand. Your role is to create exceptional content that authentically represents the brand, deeply engages its target audience, and drives meaningful business results.
 
-const BASE_SYSTEM = `You are the Content Generator for Cascades Luxury — West Africa's premier luxury fragrance and beauty retailer.
-
-You create exceptional content that positions Cascades Luxury as the authority on luxury fragrance in West Africa. Every piece you create must:
-- Speak to affluent African professionals aged 25-45
-- Balance aspiration with warmth (never cold or distant)
+Every piece of content you create must:
+- Speak directly to the brand's specific target audience
+- Authentically reflect the brand's unique voice and personality
+- Balance aspiration with genuine connection (never cold or distant)
 - Educate and inspire, not just sell
-- Be specific and evocative — use sensory language
+- Be specific and evocative — concrete details over generic adjectives
 - Feel personally crafted, not AI-generated
 
-Brand Voice Essence:
-"We are the trusted luxury advisor, the friend who knows everything about fragrance and wants you to experience the finest."`;
+You adapt completely to the brand guidelines provided. When in doubt, err on the side of sophistication and authenticity.`;
 
-const guidelinesContext = () =>
-  `BRAND GUIDELINES (version ${BRAND_GUIDELINES.version}):\n${JSON.stringify(BRAND_GUIDELINES.voice, null, 2)}\n\nMessaging Pillars:\n${BRAND_GUIDELINES.messaging.corePillars.map((p) => `• ${p}`).join('\n')}`;
+// Dynamic context block — varies per tenant, populated at job time
+function guidelinesContext(brandConfig) {
+  const brand = brandConfig || {};
+  const identity = brand.identity || {};
+  const voice = brand.voice || {};
+  const messaging = brand.messaging || {};
+  const compliance = brand.compliance || {};
 
-// ── Tool schemas for structured outputs ───────────────────────────────────────
+  return [
+    `BRAND: ${identity.name || 'The Brand'}`,
+    identity.tagline ? `TAGLINE: ${identity.tagline}` : '',
+    identity.positioning ? `POSITIONING: ${identity.positioning}` : '',
+    identity.markets?.length ? `MARKETS: ${identity.markets.join(', ')}` : '',
+    '',
+    'BRAND VOICE:',
+    voice.tone ? `Tone: ${voice.tone}` : '',
+    voice.personality?.length ? `Personality: ${voice.personality.join(', ')}` : '',
+    '',
+    voice.doList?.length ? `DO:\n${voice.doList.map((d) => `• ${d}`).join('\n')}` : '',
+    voice.dontList?.length ? `\nDO NOT:\n${voice.dontList.map((d) => `• ${d}`).join('\n')}` : '',
+    '',
+    messaging.corePillars?.length
+      ? `MESSAGING PILLARS:\n${messaging.corePillars.map((p) => `• ${p}`).join('\n')}`
+      : '',
+    compliance.pricing ? `\nPRICING NOTE: ${compliance.pricing}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+// ── Tool schemas (unchanged) ──────────────────────────────────────────────────
 
 const SOCIAL_CAPTIONS_TOOL = {
   name: 'submit_social_captions',
@@ -151,8 +175,8 @@ const CONTENT_CALENDAR_TOOL = {
           },
         },
       },
-      keyDates: { type: 'array', items: { type: 'string' }, description: 'Important dates, holidays, or opportunities' },
-      emailCampaigns: { type: 'array', items: { type: 'string' }, description: 'Recommended email campaigns for the month' },
+      keyDates: { type: 'array', items: { type: 'string' } },
+      emailCampaigns: { type: 'array', items: { type: 'string' } },
     },
     required: ['month', 'theme', 'weeklyBreakdown'],
   },

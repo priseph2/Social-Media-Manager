@@ -15,7 +15,7 @@ const PORT = process.env.PORT || 3000;
 
 async function start() {
   logger.info('╔══════════════════════════════════════════════╗');
-  logger.info('║     Cascades Luxury AI System — Starting     ║');
+  logger.info('║      AI Social Media Manager — Starting      ║');
   logger.info('╚══════════════════════════════════════════════╝');
 
   // ── Validate required environment variables ───────────────────────────────

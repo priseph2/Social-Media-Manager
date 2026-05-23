@@ -15,66 +15,58 @@ const {
 const { enqueue } = require('../../orchestrator/message-queue');
 const { SKILLS, QUEUES, PRIORITY, MODELS } = require('../../config/constants');
 const { isMongoAvailable } = require('../../services/database/mongodb-client');
+const { getBrandConfig } = require('../../services/brand-config');
 const Content = require('../../models/content.model');
 
 class ContentGenerator extends BaseSkill {
   constructor() {
     super(SKILLS.CONTENT_GENERATOR);
-    this._cachedGuidelinesBlock = null;
-  }
-
-  get guidelinesBlock() {
-    if (!this._cachedGuidelinesBlock) {
-      this._cachedGuidelinesBlock = cachedSystemBlock(guidelinesContext());
-    }
-    return this._cachedGuidelinesBlock;
   }
 
   async execute(job) {
     const validated = validateRequest(job.data);
+    const tenantId = job.data.tenantId || null;
+    const brandConfig = await getBrandConfig(tenantId);
 
-    // Route to the correct generator based on content type
     let result;
     switch (validated.type) {
       case 'social_caption':
-        result = await this.generateSocialCaptions(validated, job.id);
+        result = await this.generateSocialCaptions(validated, job.id, brandConfig);
         break;
       case 'email_campaign':
-        result = await this.generateEmailCampaign(validated, job.id);
+        result = await this.generateEmailCampaign(validated, job.id, brandConfig);
         break;
       case 'blog_post':
-        result = await this.generateBlogPost(validated, job.id);
+        result = await this.generateBlogPost(validated, job.id, brandConfig);
         break;
       case 'product_description':
-        result = await this.generateProductDescription(validated, job.id);
+        result = await this.generateProductDescription(validated, job.id, brandConfig);
         break;
       case 'content_calendar':
-        result = await this.generateContentCalendar(validated, job.id);
+        result = await this.generateContentCalendar(validated, job.id, brandConfig);
         break;
       case 'daily_content':
-        result = await this.generateDailyContent(validated, job.id);
+        result = await this.generateDailyContent(validated, job.id, brandConfig);
         break;
       default:
         throw new Error(`Unknown content type: ${validated.type}`);
     }
 
-    // Persist to MongoDB if available
-    await this._persist(result, job.id);
-
-    // Send best variation to Brand Guardian for review
-    await this._sendForBrandReview(result, job.id);
-
+    await this._persist(result, job.id, tenantId);
+    await this._sendForBrandReview(result, job.id, tenantId);
     return result;
   }
 
-  // ── Generators ──────────────────────────────────────────────────────────────
+  _guidelinesBlock(brandConfig) {
+    return cachedSystemBlock(guidelinesContext(brandConfig));
+  }
 
-  async generateSocialCaptions(data, jobId) {
+  async generateSocialCaptions(data, jobId, brandConfig) {
+    const brandName = brandConfig?.identity?.name || 'the brand';
     this.log.info(`Generating social captions for ${data.platform}`, { jobId });
 
     const prompt = [
-      `Generate 5 Instagram/social media captions for Cascades Luxury.`,
-      `Platform: ${data.platform}`,
+      `Generate 5 ${data.platform} social media captions for ${brandName}.`,
       `Theme: ${data.theme}`,
       data.product ? `Product/focus: ${data.product}` : '',
       data.audience ? `Target audience note: ${data.audience}` : '',
@@ -84,7 +76,7 @@ class ContentGenerator extends BaseSkill {
       'Requirements:',
       '• 5 distinct captions with different creative angles',
       '• Each must feel crafted, not templated',
-      '• Include 3-8 relevant luxury/fragrance hashtags per caption',
+      '• Include 3-8 relevant hashtags per caption',
       '• Captions should create desire and invite engagement',
       `• Respect ${data.platform} character limits`,
     ].filter(Boolean).join('\n');
@@ -92,7 +84,7 @@ class ContentGenerator extends BaseSkill {
     const response = await createMessage({
       model: MODELS.PRIMARY,
       maxTokens: 2500,
-      system: [cachedSystemBlock(BASE_SYSTEM), this.guidelinesBlock],
+      system: [cachedSystemBlock(BASE_SYSTEM), this._guidelinesBlock(brandConfig)],
       messages: [{ role: 'user', content: prompt }],
       tools: [SOCIAL_CAPTIONS_TOOL],
       label: `Content Generator: social captions (${data.platform})`,
@@ -113,11 +105,11 @@ class ContentGenerator extends BaseSkill {
     };
   }
 
-  async generateEmailCampaign(data, jobId) {
+  async generateEmailCampaign(data, jobId, brandConfig) {
     this.log.info('Generating email campaign', { jobId, goal: data.campaignGoal });
 
     const prompt = [
-      `Create a complete email campaign for Cascades Luxury.`,
+      `Create a complete email campaign for ${brandConfig?.identity?.name || 'the brand'}.`,
       `Campaign goal: ${data.campaignGoal}`,
       `Target audience segment: ${data.audienceSegment}`,
       data.product ? `Product/offer: ${data.product}` : '',
@@ -134,7 +126,7 @@ class ContentGenerator extends BaseSkill {
     const response = await createMessage({
       model: MODELS.PRIMARY,
       maxTokens: 3000,
-      system: [cachedSystemBlock(BASE_SYSTEM), this.guidelinesBlock],
+      system: [cachedSystemBlock(BASE_SYSTEM), this._guidelinesBlock(brandConfig)],
       messages: [{ role: 'user', content: prompt }],
       tools: [EMAIL_TOOL],
       label: 'Content Generator: email campaign',
@@ -162,11 +154,11 @@ class ContentGenerator extends BaseSkill {
     };
   }
 
-  async generateBlogPost(data, jobId) {
+  async generateBlogPost(data, jobId, brandConfig) {
     this.log.info('Generating blog post', { jobId, topic: data.topic });
 
     const prompt = [
-      `Write a ${data.wordCount || 600}-word SEO-optimised blog post for Cascades Luxury.`,
+      `Write a ${data.wordCount || 600}-word SEO-optimised blog post for ${brandConfig?.identity?.name || 'the brand'}'s website.`,
       `Topic: ${data.topic}`,
       `Target keyword: "${data.targetKeyword}"`,
       data.audience ? `Reader: ${data.audience}` : '',
@@ -176,14 +168,14 @@ class ContentGenerator extends BaseSkill {
       '• Include an engaging hook that stops the scroll',
       '• 3-4 sections with clear subheadings',
       '• Include actionable insights or expert tips',
-      '• End with a relevant CTA tied to Cascades Luxury',
+      `• End with a relevant CTA tied to ${brandConfig?.identity?.name || 'the brand'}`,
       '• Format in clean HTML (h2, p, ul)',
     ].filter(Boolean).join('\n');
 
     const response = await createMessage({
       model: MODELS.PRIMARY,
       maxTokens: 3500,
-      system: [cachedSystemBlock(BASE_SYSTEM), this.guidelinesBlock],
+      system: [cachedSystemBlock(BASE_SYSTEM), this._guidelinesBlock(brandConfig)],
       messages: [{ role: 'user', content: prompt }],
       tools: [BLOG_POST_TOOL],
       label: 'Content Generator: blog post',
@@ -207,11 +199,12 @@ class ContentGenerator extends BaseSkill {
     };
   }
 
-  async generateProductDescription(data, jobId) {
+  async generateProductDescription(data, jobId, brandConfig) {
     this.log.info('Generating product description', { jobId, product: data.productName });
 
+    const currencyNote = brandConfig?.compliance?.pricing || '';
     const prompt = [
-      `Write a luxury product description for Cascades Luxury's website.`,
+      `Write a luxury product description for ${brandConfig?.identity?.name || 'the brand'}'s website.`,
       `Product: ${data.productName}`,
       `Brand: ${data.brand}`,
       data.fragranceNotes?.length ? `Fragrance notes: ${data.fragranceNotes.join(', ')}` : '',
@@ -219,6 +212,7 @@ class ContentGenerator extends BaseSkill {
       data.size ? `Size: ${data.size}` : '',
       data.targetAudience ? `Ideal for: ${data.targetAudience}` : '',
       data.uniqueSellingPoints?.length ? `USPs: ${data.uniqueSellingPoints.join(', ')}` : '',
+      currencyNote ? `Pricing format: ${currencyNote}` : '',
       '',
       'Requirements:',
       '• Create desire and emotional connection first, then specs',
@@ -230,7 +224,7 @@ class ContentGenerator extends BaseSkill {
     const response = await createMessage({
       model: MODELS.PRIMARY,
       maxTokens: 1500,
-      system: [cachedSystemBlock(BASE_SYSTEM), this.guidelinesBlock],
+      system: [cachedSystemBlock(BASE_SYSTEM), this._guidelinesBlock(brandConfig)],
       messages: [{ role: 'user', content: prompt }],
       tools: [PRODUCT_DESCRIPTION_TOOL],
       label: `Content Generator: product description (${data.productName})`,
@@ -253,27 +247,28 @@ class ContentGenerator extends BaseSkill {
     };
   }
 
-  async generateContentCalendar(data, jobId) {
+  async generateContentCalendar(data, jobId, brandConfig) {
     this.log.info('Generating content calendar', { jobId, month: data.month });
 
+    const mix = brandConfig?.contentMix || {};
     const prompt = [
-      `Create a 30-day social media content calendar for Cascades Luxury.`,
+      `Create a 30-day social media content calendar for ${brandConfig?.identity?.name || 'the brand'}.`,
       `Month: ${data.month}${data.year ? ` ${data.year}` : ''}`,
       data.keyEvents?.length ? `Key dates and events: ${data.keyEvents.join(', ')}` : '',
       data.productLaunches?.length ? `Upcoming product launches: ${data.productLaunches.join(', ')}` : '',
       '',
-      'Requirements:',
-      '• Balance content types: educational (25%), product (25%), lifestyle (20%), community (15%), promotional (15%)',
-      '• Cover Instagram, Facebook, and TikTok primarily',
-      '• Identify key opportunities (holidays, local events, fragrance seasons)',
-      '• Include 2-3 email campaign recommendations',
-      '• Mark promotional moments without making the calendar feel sales-heavy',
+      'Content mix targets:',
+      mix.educational ? `• Educational: ${Math.round(mix.educational * 100)}%` : '• Educational: 25%',
+      mix.productShowcase ? `• Product: ${Math.round(mix.productShowcase * 100)}%` : '• Product: 25%',
+      mix.lifestyle ? `• Lifestyle: ${Math.round(mix.lifestyle * 100)}%` : '• Lifestyle: 20%',
+      mix.community ? `• Community: ${Math.round(mix.community * 100)}%` : '• Community: 15%',
+      mix.promotional ? `• Promotional: ${Math.round(mix.promotional * 100)}%` : '• Promotional: 15%',
     ].filter(Boolean).join('\n');
 
     const response = await createMessage({
       model: MODELS.PRIMARY,
       maxTokens: 4000,
-      system: [cachedSystemBlock(BASE_SYSTEM), this.guidelinesBlock],
+      system: [cachedSystemBlock(BASE_SYSTEM), this._guidelinesBlock(brandConfig)],
       messages: [{ role: 'user', content: prompt }],
       tools: [CONTENT_CALENDAR_TOOL],
       label: `Content Generator: content calendar (${data.month})`,
@@ -295,12 +290,11 @@ class ContentGenerator extends BaseSkill {
     };
   }
 
-  async generateDailyContent(data, jobId) {
+  async generateDailyContent(data, jobId, brandConfig) {
     this.log.info('Generating daily content batch', { jobId });
-    // Daily trigger creates an Instagram caption + Facebook caption by default
     const [instagramResult, facebookResult] = await Promise.all([
-      this.generateSocialCaptions({ type: 'social_caption', platform: 'instagram', theme: 'Daily luxury moment' }, `${jobId}-ig`),
-      this.generateSocialCaptions({ type: 'social_caption', platform: 'facebook', theme: 'Daily luxury moment' }, `${jobId}-fb`),
+      this.generateSocialCaptions({ type: 'social_caption', platform: 'instagram', theme: 'Daily brand moment' }, `${jobId}-ig`, brandConfig),
+      this.generateSocialCaptions({ type: 'social_caption', platform: 'facebook', theme: 'Daily brand moment' }, `${jobId}-fb`, brandConfig),
     ]);
 
     return {
@@ -313,19 +307,15 @@ class ContentGenerator extends BaseSkill {
     };
   }
 
-  // ── Persistence & Routing ───────────────────────────────────────────────────
-
-  async _persist(result, jobId) {
+  async _persist(result, jobId, tenantId) {
     if (!isMongoAvailable()) return;
     try {
       await Content.create({
+        tenantId,
         type: result.type,
         platform: result.platform,
         input: result.input,
-        variations: result.captions?.map((c) => ({
-          text: c.text,
-          hashtags: c.hashtags,
-        })) || [{ text: result.selectedContent }],
+        variations: result.captions?.map((c) => ({ text: c.text, hashtags: c.hashtags })) || [{ text: result.selectedContent }],
         selectedVariation: result.recommendedIndex || 0,
         brandReview: { status: 'pending' },
         jobId,
@@ -335,9 +325,10 @@ class ContentGenerator extends BaseSkill {
     }
   }
 
-  async _sendForBrandReview(result, jobId) {
+  async _sendForBrandReview(result, jobId, tenantId) {
     if (!result.selectedContent) return;
     await enqueue(QUEUES.BRAND_REVIEW, 'review-content', {
+      tenantId,
       content: result.selectedContent,
       type: result.type,
       platform: result.platform,

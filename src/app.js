@@ -15,6 +15,7 @@ const orchestratorRoutes = require('./api/routes/orchestrator.routes');
 const contentRoutes = require('./api/routes/content.routes');
 const webhookRoutes = require('./api/routes/webhooks.routes');
 const analyticsRoutes = require('./api/routes/analytics.routes');
+const tenantsRoutes = require('./api/routes/tenants.routes');
 
 const app = express();
 
@@ -32,10 +33,11 @@ app.use(express.json({ limit: '2mb' }));
 
 // ── Health check (no auth) ───────────────────────────────────────────────────
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Cascades Luxury AI', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'AI Social Media Manager', timestamp: new Date().toISOString() });
 });
 
 // ── Routes ───────────────────────────────────────────────────────────────────
+app.use('/api/tenants', tenantsRoutes);
 app.use('/api/orchestrator', orchestratorRoutes);
 app.use('/api/content', contentRoutes);
 app.use('/api/analytics', analyticsRoutes);

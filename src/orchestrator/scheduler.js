@@ -4,43 +4,65 @@ const cron = require('node-cron');
 const logger = require('../utils/logger');
 const { enqueue } = require('./message-queue');
 const { QUEUES, PRIORITY } = require('../config/constants');
+const { getSupabaseClient } = require('../services/database/supabase-client');
 
 const scheduledJobs = [];
 
-/**
- * Registers all recurring system tasks.
- * Times are in WAT (UTC+1) — the server should be configured accordingly.
- */
+async function getActiveTenantIds() {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    const fallback = process.env.DEFAULT_TENANT_ID;
+    return fallback ? [fallback] : [];
+  }
+  const { data } = await supabase
+    .from('tenants')
+    .select('id')
+    .eq('status', 'active');
+  return (data || []).map((t) => t.id);
+}
+
 function initScheduler() {
-  // 8:00 AM daily — trigger content creation for the day
+  // 8:00 AM daily (WAT) — daily content creation for each active tenant
   schedule('0 8 * * *', 'daily-content-creation', async () => {
-    logger.info('[Scheduler] Daily content creation triggered');
-    await enqueue(QUEUES.CONTENT, 'generate-daily-content', {
-      trigger: 'scheduled',
-      date: new Date().toISOString(),
-    }, { priority: PRIORITY.NORMAL });
+    const tenantIds = await getActiveTenantIds();
+    logger.info(`[Scheduler] Daily content creation for ${tenantIds.length} tenant(s)`);
+    for (const tenantId of tenantIds) {
+      await enqueue(QUEUES.CONTENT, 'generate-daily-content', {
+        tenantId,
+        trigger: 'scheduled',
+        date: new Date().toISOString(),
+      }, { priority: PRIORITY.NORMAL });
+    }
   });
 
-  // 6:00 PM daily — analytics aggregation
+  // 6:00 PM daily — analytics aggregation for each active tenant
   schedule('0 18 * * *', 'daily-analytics', async () => {
-    logger.info('[Scheduler] Daily analytics aggregation triggered');
-    await enqueue(QUEUES.ANALYTICS, 'aggregate-daily-metrics', {
-      date: new Date().toISOString(),
-    }, { priority: PRIORITY.LOW });
+    const tenantIds = await getActiveTenantIds();
+    logger.info(`[Scheduler] Daily analytics for ${tenantIds.length} tenant(s)`);
+    for (const tenantId of tenantIds) {
+      await enqueue(QUEUES.ANALYTICS, 'aggregate-daily-metrics', {
+        tenantId,
+        date: new Date().toISOString(),
+      }, { priority: PRIORITY.LOW });
+    }
   });
 
-  // Sunday 6:00 PM — weekly newsletter creation
+  // Sunday 6:00 PM — weekly newsletter for each active tenant
   schedule('0 18 * * 0', 'weekly-newsletter', async () => {
-    logger.info('[Scheduler] Weekly newsletter creation triggered');
-    await enqueue(QUEUES.EMAIL, 'create-weekly-newsletter', {
-      trigger: 'scheduled',
-      date: new Date().toISOString(),
-    }, { priority: PRIORITY.NORMAL });
+    const tenantIds = await getActiveTenantIds();
+    logger.info(`[Scheduler] Weekly newsletter for ${tenantIds.length} tenant(s)`);
+    for (const tenantId of tenantIds) {
+      await enqueue(QUEUES.EMAIL, 'create-weekly-newsletter', {
+        tenantId,
+        trigger: 'scheduled',
+        date: new Date().toISOString(),
+      }, { priority: PRIORITY.NORMAL });
+    }
   });
 
-  // Every day at midnight — health check
+  // Daily midnight — health check
   schedule('0 0 * * *', 'daily-health-check', async () => {
-    logger.info('[Scheduler] Daily health check');
+    logger.info('[Scheduler] Daily health check OK');
   });
 
   logger.info(`Scheduler initialised with ${scheduledJobs.length} recurring jobs`);
