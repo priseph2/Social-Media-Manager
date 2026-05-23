@@ -4,6 +4,7 @@ const Anthropic = require('@anthropic-ai/sdk');
 const { withRetry } = require('../utils/retry');
 const logger = require('../utils/logger');
 const { MODELS } = require('../config/constants');
+const { tenantStorage, recordUsage } = require('./billing/usage-meter');
 
 let client = null;
 
@@ -48,6 +49,12 @@ async function createMessage({ model = MODELS.PRIMARY, maxTokens = 2048, system,
     cacheReadTokens: usage.cache_read_input_tokens,
     cacheCreationTokens: usage.cache_creation_input_tokens,
   });
+
+  // Meter usage for the current tenant (resolved via AsyncLocalStorage)
+  const ctx = tenantStorage.getStore();
+  if (ctx?.tenantId) {
+    recordUsage(ctx.tenantId, model, usage, ctx.skill || null);
+  }
 
   return response;
 }

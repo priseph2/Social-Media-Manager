@@ -3,6 +3,7 @@
 const logger = require('../utils/logger');
 const Decision = require('../models/decision.model');
 const { isMongoAvailable } = require('../services/database/mongodb-client');
+const { tenantStorage } = require('../services/billing/usage-meter');
 
 /**
  * All skills extend BaseSkill. Provides:
@@ -32,17 +33,20 @@ class BaseSkill {
     const start = Date.now();
     this.log.info(`Processing job ${job.id}`, { jobName: job.name, jobId: job.id });
 
-    try {
-      const result = await this.execute(job);
-      const durationMs = Date.now() - start;
-      this.log.info(`Job ${job.id} completed in ${durationMs}ms`, { jobId: job.id });
-      await this._logDecision({ job, result, durationMs });
-      return result;
-    } catch (err) {
-      const durationMs = Date.now() - start;
-      this.log.error(`Job ${job.id} failed after ${durationMs}ms`, { jobId: job.id, error: err });
-      throw err;
-    }
+    // Set tenant context so every Claude call within this job is attributed correctly
+    return tenantStorage.run({ tenantId: job.data?.tenantId || null, skill: this.name }, async () => {
+      try {
+        const result = await this.execute(job);
+        const durationMs = Date.now() - start;
+        this.log.info(`Job ${job.id} completed in ${durationMs}ms`, { jobId: job.id });
+        await this._logDecision({ job, result, durationMs });
+        return result;
+      } catch (err) {
+        const durationMs = Date.now() - start;
+        this.log.error(`Job ${job.id} failed after ${durationMs}ms`, { jobId: job.id, error: err });
+        throw err;
+      }
+    });
   }
 
   async _logDecision({ job, result, durationMs }) {

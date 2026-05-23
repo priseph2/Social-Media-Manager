@@ -4,6 +4,7 @@ const { Router } = require('express');
 const orchestrator = require('../../orchestrator/orchestrator');
 const { enqueue } = require('../../orchestrator/message-queue');
 const { authenticate } = require('../middleware/auth');
+const { requireFeature, checkOpsLimit } = require('../middleware/plan-gate');
 const { QUEUES, PRIORITY } = require('../../config/constants');
 
 const router = Router();
@@ -14,7 +15,7 @@ router.use(authenticate);
  * Trigger content generation for any content type.
  * Body: { type, platform?, theme?, product?, ... }
  */
-router.post('/generate-content', async (req, res, next) => {
+router.post('/generate-content', checkOpsLimit, async (req, res, next) => {
   try {
     const job = await orchestrator.generateContent(req.body);
     res.json({ success: true, jobId: job?.id, message: 'Content generation queued' });
@@ -41,7 +42,7 @@ router.post('/customer-inquiry', async (req, res, next) => {
  * POST /api/orchestrator/email-campaign
  * Queue an email campaign creation.
  */
-router.post('/email-campaign', async (req, res, next) => {
+router.post('/email-campaign', requireFeature('emailCampaigns'), checkOpsLimit, async (req, res, next) => {
   try {
     const job = await orchestrator.createEmailCampaign(req.body);
     res.json({ success: true, jobId: job?.id, message: 'Email campaign queued' });
@@ -81,7 +82,7 @@ router.post('/generate-subject-lines', async (req, res, next) => {
  * POST /api/orchestrator/optimize-product
  * Queue Shopify product listing optimisation.
  */
-router.post('/optimize-product', async (req, res, next) => {
+router.post('/optimize-product', requireFeature('ecommerceOptimizer'), checkOpsLimit, async (req, res, next) => {
   try {
     const job = await orchestrator.optimizeProduct(req.body);
     res.json({ success: true, jobId: job?.id, message: 'Product optimisation queued' });
