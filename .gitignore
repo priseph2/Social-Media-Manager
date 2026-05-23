@@ -1,0 +1,9 @@
+node_modules/
+.env
+.env.local
+logs/
+*.log
+config/ga4-service-account.json
+.DS_Store
+dist/
+coverage/
