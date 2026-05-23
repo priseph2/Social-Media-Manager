@@ -42,21 +42,43 @@ router.post('/shopify', express_raw_body, async (req, res) => {
     case 'orders/create':
     case 'orders/paid': {
       const order = req.body;
-      // Enqueue spike analysis with full order payload and tenantId
-      await enqueue(
-        QUEUES.ANALYTICS,
-        'analyse-sales-spike',
-        { source: 'shopify', topic, order, tenantId, shopDomain },
-        { priority: PRIORITY.HIGH }
-      ).catch((err) => logger.error('Failed to enqueue analyse-sales-spike', { error: err.message }));
 
-      // Also trigger an immediate metrics aggregation so the dashboard updates
-      await enqueue(
-        QUEUES.ANALYTICS,
-        'aggregate-daily-metrics',
-        { date: new Date().toISOString(), tenantId, trigger: 'shopify_order_webhook' },
-        { priority: PRIORITY.NORMAL }
-      ).catch((err) => logger.error('Failed to enqueue aggregate-daily-metrics', { error: err.message }));
+      await Promise.allSettled([
+        // Spike analysis
+        enqueue(QUEUES.ANALYTICS, 'analyse-sales-spike',
+          { source: 'shopify', topic, order, tenantId, shopDomain },
+          { priority: PRIORITY.HIGH }
+        ),
+        // Revenue attribution — links this order to the content that drove it
+        enqueue(QUEUES.ANALYTICS, 'attribute-revenue',
+          {
+            tenantId,
+            platform: 'shopify',
+            order: {
+              id: order.id || order.name,
+              createdAt: order.created_at,
+              total: parseFloat(order.total_price || 0),
+              currency: order.currency,
+              lineItems: (order.line_items || []).map((li) => ({
+                productId: String(li.product_id),
+                title: li.title,
+                quantity: li.quantity,
+                price: parseFloat(li.price),
+              })),
+            },
+          },
+          { priority: PRIORITY.NORMAL }
+        ),
+        // Immediate metrics refresh
+        enqueue(QUEUES.ANALYTICS, 'aggregate-daily-metrics',
+          { date: new Date().toISOString(), tenantId, trigger: 'shopify_order_webhook' },
+          { priority: PRIORITY.NORMAL }
+        ),
+      ]).then((results) => {
+        results.filter((r) => r.status === 'rejected').forEach((r) =>
+          logger.error('Failed to enqueue webhook job', { reason: r.reason?.message })
+        );
+      });
       break;
     }
 

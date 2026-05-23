@@ -7,6 +7,7 @@ const navItems = [
   { href: '/dashboard', label: 'Overview' },
   { href: '/dashboard/content', label: 'Content' },
   { href: '/dashboard/escalations', label: 'Escalations' },
+  { href: '/dashboard/analytics', label: 'Analytics' },
   { href: '/dashboard/settings/brand', label: 'Brand' },
   { href: '/dashboard/settings/integrations', label: 'Integrations' },
   { href: '/dashboard/settings/billing', label: 'Billing' },

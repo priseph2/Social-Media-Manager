@@ -2,11 +2,13 @@
 
 const { Router } = require('express');
 const { authenticate } = require('../middleware/auth');
+const { requireFeature } = require('../middleware/plan-gate');
 const { enqueue } = require('../../orchestrator/message-queue');
 const { supabaseQuery } = require('../../services/database/supabase-client');
 const { isMongoAvailable } = require('../../services/database/mongodb-client');
 const Content = require('../../models/content.model');
 const Decision = require('../../models/decision.model');
+const { getTopAttributedContent } = require('../../skills/analytics-monitor/revenue-attributor');
 const { QUEUES, PRIORITY } = require('../../config/constants');
 
 const router = Router();
@@ -111,6 +113,116 @@ router.patch('/escalations/:id/resolve', async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+// ── Advanced Analytics (Phase 9) ─────────────────────────────────────────────
+
+/**
+ * POST /api/analytics/predict-performance
+ * Predicts engagement and reach for a content piece before publishing.
+ * Body: { contentText, platform, scheduledAt?, contentId? }
+ */
+router.post('/predict-performance', requireFeature('advancedAnalytics'), async (req, res, next) => {
+  try {
+    const { contentText, platform, scheduledAt, contentId } = req.body;
+    if (!contentText || !platform) return res.status(400).json({ error: 'contentText and platform are required' });
+    const job = await enqueue(QUEUES.ANALYTICS, 'predict-content-performance', {
+      tenantId: req.tenantId, contentText, platform, scheduledAt, contentId,
+    }, { priority: PRIORITY.HIGH });
+    res.json({ success: true, jobId: job?.id, message: 'Performance prediction queued' });
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /api/analytics/benchmark
+ * Runs a full competitor benchmark analysis for the tenant.
+ */
+router.post('/benchmark', requireFeature('advancedAnalytics'), async (req, res, next) => {
+  try {
+    const job = await enqueue(QUEUES.ANALYTICS, 'run-competitor-benchmark',
+      { tenantId: req.tenantId },
+      { priority: PRIORITY.LOW }
+    );
+    res.json({ success: true, jobId: job?.id, message: 'Benchmark analysis queued' });
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /api/analytics/reports
+ * Lists stored monthly reports for the tenant.
+ */
+router.get('/reports', requireFeature('advancedAnalytics'), async (req, res, next) => {
+  try {
+    const reports = await supabaseQuery((db) =>
+      db.from('monthly_reports')
+        .select('id, period, title, overall_score, generated_at')
+        .eq('tenant_id', req.tenantId)
+        .order('period', { ascending: false })
+        .limit(24)
+    ) || [];
+    res.json({ reports });
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /api/analytics/reports/:period
+ * Fetches a specific monthly report (period = 'YYYY-MM').
+ */
+router.get('/reports/:period', requireFeature('advancedAnalytics'), async (req, res, next) => {
+  try {
+    const report = await supabaseQuery((db) =>
+      db.from('monthly_reports')
+        .select('*')
+        .eq('tenant_id', req.tenantId)
+        .eq('period', req.params.period)
+        .maybeSingle()
+    );
+    if (!report) return res.status(404).json({ error: 'Report not found' });
+    res.json(report);
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /api/analytics/reports/generate
+ * Triggers generation of the monthly narrative report.
+ * Body: { period? } — defaults to current month.
+ */
+router.post('/reports/generate', requireFeature('advancedAnalytics'), async (req, res, next) => {
+  try {
+    const period = req.body.period || new Date().toISOString().slice(0, 7);
+    const job = await enqueue(QUEUES.ANALYTICS, 'generate-monthly-report',
+      { tenantId: req.tenantId, period },
+      { priority: PRIORITY.LOW }
+    );
+    res.json({ success: true, jobId: job?.id, period, message: 'Monthly report generation queued — check back in ~2 minutes' });
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /api/analytics/attribution
+ * Returns top revenue-attributed content pieces for the past N days.
+ */
+router.get('/attribution', requireFeature('advancedAnalytics'), async (req, res, next) => {
+  try {
+    const days = Math.min(Number(req.query.days) || 30, 90);
+    const topContent = await getTopAttributedContent(req.tenantId, days);
+
+    // Enrich with Content data from MongoDB if available
+    let enriched = topContent;
+    if (isMongoAvailable() && topContent.length) {
+      const ids = topContent.map((c) => c.contentId).filter(Boolean);
+      const docs = await Content.find({ _id: { $in: ids } })
+        .select('_id type platform variations.text postedAt performance')
+        .lean();
+      const docMap = Object.fromEntries(docs.map((d) => [String(d._id), d]));
+      enriched = topContent.map((c) => ({
+        ...c,
+        content: docMap[c.contentId] || null,
+      }));
+    }
+
+    res.json({ topContent: enriched, days, tenantId: req.tenantId });
+  } catch (err) { next(err); }
 });
 
 /**

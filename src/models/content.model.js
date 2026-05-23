@@ -37,6 +37,24 @@ const contentSchema = new mongoose.Schema(
       clicks: Number,
       saves: Number,
     },
+    performancePrediction: {
+      predictedEngagementRate: Number,
+      predictedReach: Number,
+      viralPotential: { type: String, enum: ['low', 'medium', 'high'] },
+      confidence: { type: String, enum: ['low', 'medium', 'high'] },
+      keyStrengths: [String],
+      improvementSuggestions: [String],
+      generatedAt: Date,
+    },
+    revenueAttributions: [
+      {
+        orderId: String,
+        amount: Number,
+        currency: String,
+        confidence: { type: String, enum: ['high', 'medium', 'low'] },
+        attributedAt: { type: Date, default: Date.now },
+      },
+    ],
     jobId: { type: String },
   },
   { timestamps: true }

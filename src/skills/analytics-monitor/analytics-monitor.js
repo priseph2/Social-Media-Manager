@@ -3,7 +3,11 @@
 const BaseSkill = require('../base-skill');
 const { aggregateAll, getHistoricalMetrics } = require('./data-aggregator');
 const { generateForecast, calculateOptimalPostTimes, detectAnomalies, calculateRollingAverages } = require('./predictive-analytics');
-const { generateReport, formatReportAsText } = require('./report-generator');
+const { generateReport, generateMonthlyNarrative, formatReportAsText } = require('./report-generator');
+const { runBenchmarkAnalysis } = require('./competitor-benchmark');
+const { predictContentPerformance } = require('./content-predictor');
+const { attributeOrder, getTopAttributedContent } = require('./revenue-attributor');
+const { getBrandConfig } = require('../../services/brand-config');
 const { isMongoAvailable } = require('../../services/database/mongodb-client');
 const { supabaseQuery } = require('../../services/database/supabase-client');
 const Metrics = require('../../models/metrics.model');
@@ -36,20 +40,17 @@ class AnalyticsMonitor extends BaseSkill {
 
   async execute(job) {
     switch (job.name) {
-      case 'aggregate-daily-metrics':
-        return this.aggregateDailyMetrics(job);
-      case 'generate-report':
-        return this.generateReport(job);
-      case 'forecast-performance':
-        return this.forecastPerformance(job);
-      case 'get-optimal-post-times':
-        return this.getOptimalPostTimes(job);
-      case 'analyse-sales-spike':
-        return this.analyseSalesSpike(job);
-      case 'get-content-insights':
-        return this.getContentInsights(job);
-      case 'benchmark-performance':
-        return this.benchmarkPerformance(job);
+      case 'aggregate-daily-metrics':    return this.aggregateDailyMetrics(job);
+      case 'generate-report':            return this.generateReport(job);
+      case 'generate-monthly-report':    return this.generateMonthlyReport(job);
+      case 'forecast-performance':       return this.forecastPerformance(job);
+      case 'get-optimal-post-times':     return this.getOptimalPostTimes(job);
+      case 'analyse-sales-spike':        return this.analyseSalesSpike(job);
+      case 'get-content-insights':       return this.getContentInsights(job);
+      case 'benchmark-performance':      return this.benchmarkPerformance(job);
+      case 'run-competitor-benchmark':   return this.runCompetitorBenchmark(job);
+      case 'predict-content-performance':return this.predictContentPerformance(job);
+      case 'attribute-revenue':          return this.attributeRevenue(job);
       default:
         throw new Error(`Analytics Monitor: unknown job "${job.name}"`);
     }
@@ -122,11 +123,12 @@ class AnalyticsMonitor extends BaseSkill {
     const tenantId = job.data.tenantId || null;
     this.log.info(`Generating ${type} report: ${period}`, { jobId: job.id, tenantId });
 
-    // Pull recent aggregated data
     const days = type === 'monthly' ? 30 : 7;
-    const history = await getHistoricalMetrics(days, null, tenantId);
+    const [history, brandConfig] = await Promise.all([
+      getHistoricalMetrics(days, null, tenantId),
+      getBrandConfig(tenantId),
+    ]);
 
-    // Group metrics by date for the report
     const metricsByDate = history.reduce((acc, m) => {
       const d = m.date?.toISOString?.()?.split('T')[0] || 'unknown';
       if (!acc[d]) acc[d] = {};
@@ -134,32 +136,123 @@ class AnalyticsMonitor extends BaseSkill {
       return acc;
     }, {});
 
-    // Get email campaigns from Supabase for this period
-    const emailCampaigns = await supabaseQuery((db) =>
-      db.from('email_campaigns')
+    const emailCampaigns = await supabaseQuery((db) => {
+      let q = db.from('email_campaigns')
         .select('subject, status, open_rate, click_rate, revenue_ngn, sent_at')
         .eq('status', 'sent')
         .order('sent_at', { ascending: false })
-        .limit(10)
-    ) || [];
+        .limit(10);
+      if (tenantId) q = q.eq('tenant_id', tenantId);
+      return q;
+    }) || [];
 
     const reportData = { metricsByDate, emailCampaigns, period, type };
 
     const forecast = await generateForecast(history, '7 days');
-    const report = await generateReport(reportData, period, forecast);
+    const report = await generateReport(reportData, period, forecast, brandConfig, null);
 
-    const result = {
-      ...report,
-      forecast,
-      type,
-      jobId: job.id,
-    };
+    const result = { ...report, forecast, type, jobId: job.id };
+    if (includeText) result.textBriefing = formatReportAsText(report);
+    return result;
+  }
 
-    if (includeText) {
-      result.textBriefing = formatReportAsText(report);
+  // ── Full Monthly Narrative Report ─────────────────────────────────────────
+
+  async generateMonthlyReport(job) {
+    const { period } = job.data;  // 'YYYY-MM' or free-text
+    const tenantId = job.data.tenantId || null;
+    const reportPeriod = period || new Date().toISOString().slice(0, 7);
+    this.log.info(`Generating monthly narrative report: ${reportPeriod}`, { jobId: job.id, tenantId });
+
+    const [history, brandConfig] = await Promise.all([
+      getHistoricalMetrics(30, null, tenantId),
+      getBrandConfig(tenantId),
+    ]);
+
+    const emailCampaigns = await supabaseQuery((db) => {
+      let q = db.from('email_campaigns')
+        .select('subject, status, open_rate, click_rate, revenue_ngn, sent_at')
+        .eq('status', 'sent')
+        .order('sent_at', { ascending: false })
+        .limit(20);
+      if (tenantId) q = q.eq('tenant_id', tenantId);
+      return q;
+    }) || [];
+
+    // Get period aggregated snapshot (latest day in history)
+    const aggregated = history.length
+      ? history.reduce((acc, m) => {
+          acc[m.channel] = m.data;
+          return acc;
+        }, {})
+      : {};
+
+    // Competitor benchmark
+    const industry = brandConfig?.identity?.positioning || 'Retail';
+    let benchmark = null;
+    try {
+      benchmark = await runBenchmarkAnalysis(aggregated, industry, brandConfig?.identity?.name);
+    } catch {
+      this.log.warn('Benchmark analysis failed — continuing without it');
     }
 
-    return result;
+    // Top performing content
+    let topContent = [];
+    let topAttributed = [];
+    if (isMongoAvailable()) {
+      const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const filter = { postedAt: { $gte: since }, 'brandReview.status': 'approved' };
+      if (tenantId) filter.tenantId = tenantId;
+      topContent = await Content.find(filter)
+        .sort({ 'performance.engagementRate': -1 })
+        .limit(10)
+        .lean();
+      topAttributed = await getTopAttributedContent(tenantId, 30);
+    }
+
+    const forecast = await generateForecast(history, '30 days').catch(() => null);
+
+    const narrative = await generateMonthlyNarrative({
+      period: reportPeriod,
+      metricsHistory: history,
+      aggregated,
+      emailCampaigns,
+      forecast,
+      benchmark,
+      topContent,
+      topAttributed,
+      brandConfig,
+    });
+
+    // Also generate structured summary for the report card
+    const structured = await generateReport(
+      { metricsByDate: {}, emailCampaigns, period: reportPeriod, type: 'monthly' },
+      reportPeriod,
+      forecast,
+      brandConfig,
+      benchmark
+    ).catch(() => null);
+
+    // Persist to Supabase monthly_reports table
+    await supabaseQuery((db) =>
+      db.from('monthly_reports').upsert({
+        tenant_id: tenantId,
+        period: reportPeriod,
+        title: `${brandConfig?.identity?.name || 'Performance'} Report — ${reportPeriod}`,
+        markdown: narrative.markdown,
+        structured,
+        benchmark,
+        overall_score: structured?.overallScore?.score || null,
+      }, { onConflict: 'tenant_id,period' })
+    ).catch((err) => this.log.warn('Failed to persist monthly report', { error: err.message }));
+
+    return {
+      success: true,
+      period: reportPeriod,
+      wordCount: narrative.wordCount,
+      overallScore: structured?.overallScore?.score,
+      jobId: job.id,
+    };
   }
 
   // ── Forecast ───────────────────────────────────────────────────────────────
@@ -306,6 +399,96 @@ class AnalyticsMonitor extends BaseSkill {
     }));
 
     return { benchmark, jobId: job.id };
+  }
+
+  // ── Competitor Benchmark ───────────────────────────────────────────────────
+
+  async runCompetitorBenchmark(job) {
+    const tenantId = job.data.tenantId || null;
+    this.log.info('Running competitor benchmark', { jobId: job.id, tenantId });
+
+    const [history, brandConfig] = await Promise.all([
+      getHistoricalMetrics(7, null, tenantId),
+      getBrandConfig(tenantId),
+    ]);
+
+    const aggregated = history.reduce((acc, m) => {
+      acc[m.channel] = m.data;
+      return acc;
+    }, {});
+
+    const industry = brandConfig?.identity?.positioning || 'Retail';
+    const brandName = brandConfig?.identity?.name || 'Your brand';
+    const benchmark = await runBenchmarkAnalysis(aggregated, industry, brandName);
+
+    return { ...benchmark, jobId: job.id };
+  }
+
+  // ── Content Performance Prediction ────────────────────────────────────────
+
+  async predictContentPerformance(job) {
+    const { contentText, platform, scheduledAt, contentId } = job.data;
+    const tenantId = job.data.tenantId || null;
+    this.log.info(`Predicting content performance: ${platform}`, { jobId: job.id, tenantId });
+
+    const [brandConfig, historicalContent] = await Promise.all([
+      getBrandConfig(tenantId),
+      isMongoAvailable()
+        ? Content.find({
+            ...(tenantId ? { tenantId } : {}),
+            platform,
+            'brandReview.status': 'approved',
+            'performance.engagementRate': { $exists: true },
+          })
+            .sort({ postedAt: -1 })
+            .limit(30)
+            .lean()
+        : [],
+    ]);
+
+    const prediction = await predictContentPerformance({
+      contentText,
+      platform,
+      scheduledAt,
+      historicalContent,
+      brandConfig,
+      tenantId,
+      contentId,
+    });
+
+    // If a contentId was provided, store prediction on the Content document
+    if (contentId && isMongoAvailable()) {
+      await Content.findByIdAndUpdate(contentId, {
+        performancePrediction: {
+          predictedEngagementRate: prediction.predictedEngagementRate,
+          predictedReach: prediction.predictedReach,
+          viralPotential: prediction.viralPotential,
+          confidence: prediction.confidence,
+          keyStrengths: prediction.keyStrengths,
+          improvementSuggestions: prediction.improvementSuggestions,
+          generatedAt: new Date(),
+        },
+      }).catch(() => {});
+    }
+
+    return { ...prediction, jobId: job.id };
+  }
+
+  // ── Revenue Attribution ───────────────────────────────────────────────────
+
+  async attributeRevenue(job) {
+    const { order, platform = 'shopify' } = job.data;
+    const tenantId = job.data.tenantId || null;
+    this.log.info(`Attributing revenue for order ${order?.id}`, { jobId: job.id, tenantId });
+
+    const attribution = await attributeOrder(order, tenantId, platform);
+
+    return {
+      success: Boolean(attribution),
+      orderId: order?.id,
+      attribution,
+      jobId: job.id,
+    };
   }
 
   // ── Helper ─────────────────────────────────────────────────────────────────
