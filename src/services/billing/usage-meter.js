@@ -36,7 +36,10 @@ const MAX_BUFFER_SIZE = 5000; // Prevent OOM during sustained Supabase outages
  * @param {string} skill  — skill name for attribution
  */
 function recordUsage(tenantId, model, usage, skill = null) {
-  if (!tenantId) return;
+  if (!tenantId) {
+    logger.warn('recordUsage called with no tenantId — skipping', { model, skill });
+    return;
+  }
   if (_buffer.length >= MAX_BUFFER_SIZE) {
     logger.warn('Usage meter buffer at capacity — dropping record', { tenantId, model });
     return;
@@ -90,7 +93,7 @@ async function flush() {
       const dropped = rows.length - toRestore.length;
       logger.warn('Usage meter flush error — rows restored for retry', { error: error.message, restored: toRestore.length, dropped });
     } else {
-      logger.debug(`Usage meter flushed ${rows.length} records`);
+      logger.info(`Usage meter: flushed ${rows.length} record(s) to Supabase`);
     }
   } catch (err) {
     const capacity = MAX_BUFFER_SIZE - _buffer.length;
