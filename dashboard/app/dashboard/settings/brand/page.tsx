@@ -9,6 +9,7 @@ interface BrandConfig {
   voice?: { tone?: string; personality?: string[]; doList?: string[]; dontList?: string[] };
   audience?: { primary?: string; secondary?: string };
   compliance?: { pricing?: string };
+  visual?: { style?: string; colorPalette?: string[] };
 }
 
 const inputCls = 'w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent';
@@ -143,6 +144,25 @@ export default function BrandSettingsPage() {
             <textarea value={config.audience?.secondary ?? ''} onChange={(e) => set(['audience', 'secondary'], e.target.value)} rows={2} className={inputCls} />
           </Field>
         </Section>
+
+        <Section title="Visual Identity">
+          <p className="text-xs text-slate-400 -mt-2">Used to guide AI image generation. Leave blank to skip.</p>
+          <Field label="Visual style">
+            <input
+              type="text"
+              placeholder="e.g. minimalist luxury, warm lifestyle photography, bold and vibrant"
+              value={config.visual?.style ?? ''}
+              onChange={(e) => set(['visual', 'style'], e.target.value)}
+              className={inputCls}
+            />
+          </Field>
+          <Field label="Brand colors">
+            <ColorPaletteInput
+              value={config.visual?.colorPalette ?? []}
+              onChange={(colors) => set(['visual', 'colorPalette'], colors)}
+            />
+          </Field>
+        </Section>
       </div>
     </div>
   );
@@ -162,6 +182,63 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     <div>
       <label className="block text-sm font-medium text-slate-600 mb-1">{label}</label>
       {children}
+    </div>
+  );
+}
+
+function ColorPaletteInput({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+  function update(i: number, hex: string) {
+    const next = [...value];
+    next[i] = hex.toUpperCase();
+    onChange(next);
+  }
+
+  function add() {
+    if (value.length < 5) onChange([...value, '#000000']);
+  }
+
+  function remove(i: number) {
+    onChange(value.filter((_, idx) => idx !== i));
+  }
+
+  return (
+    <div className="space-y-2">
+      {value.map((hex, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <input
+            type="color"
+            value={hex}
+            onChange={(e) => update(i, e.target.value)}
+            className="w-9 h-9 rounded border border-slate-200 cursor-pointer p-0.5"
+          />
+          <input
+            type="text"
+            value={hex}
+            maxLength={7}
+            onChange={(e) => update(i, e.target.value)}
+            className="w-28 px-2 py-1.5 border border-slate-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+          <button
+            type="button"
+            onClick={() => remove(i)}
+            className="text-slate-400 hover:text-red-500 text-sm px-1"
+          >
+            ✕
+          </button>
+        </div>
+      ))}
+      {value.length < 5 && (
+        <button
+          type="button"
+          onClick={add}
+          className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+        >
+          + Add color {value.length > 0 && `(${value.length}/5)`}
+        </button>
+      )}
+      {value.length === 0 && (
+        <p className="text-xs text-slate-400">No colors added — image generation will use default styling.</p>
+      )}
     </div>
   );
 }

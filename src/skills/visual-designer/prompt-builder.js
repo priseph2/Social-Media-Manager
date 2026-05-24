@@ -15,37 +15,24 @@ const PLATFORM_GUIDANCE = {
 /**
  * Builds a detailed image generation prompt from caption text and brand config.
  *
- * @param {string} captionText  - The approved social caption (used for visual context)
+ * @param {string} captionText  - The approved social caption
  * @param {string} platform     - Target social platform
- * @param {object} brandConfig  - Tenant brand configuration from brand_configs table
+ * @param {object} brandConfig  - Nested brand config from brand_configs table
  * @returns {string}
  */
 function buildImagePrompt(captionText, platform, brandConfig = {}) {
-  const {
-    companyName = '',
-    industry = '',
-    brandVoice = '',
-    visualStyle = '',
-    colorPalette = [],
-    targetAudience = '',
-  } = brandConfig;
+  const companyName    = brandConfig.identity?.name        || '';
+  const brandVoice     = brandConfig.voice?.tone           || '';
+  const targetAudience = brandConfig.audience?.primary     || '';
+  const visualStyle    = brandConfig.visual?.style         || '';
+  const colorPalette   = brandConfig.visual?.colorPalette  || [];
 
-  const guidance = PLATFORM_GUIDANCE[platform] || PLATFORM_GUIDANCE.default;
-  const colors = colorPalette.length
-    ? `Brand color palette: ${colorPalette.join(', ')}.`
-    : '';
-  const audience = targetAudience
-    ? `Target audience: ${targetAudience}.`
-    : '';
-  const industry_ = industry ? `Industry: ${industry}.` : '';
-  const style = visualStyle
-    ? `Visual style: ${visualStyle}.`
-    : '';
-  const voice = brandVoice
-    ? `Brand personality: ${brandVoice}.`
-    : '';
+  const guidance  = PLATFORM_GUIDANCE[platform] || PLATFORM_GUIDANCE.default;
+  const colors    = colorPalette.length ? `Brand color palette: ${colorPalette.join(', ')}.` : '';
+  const audience  = targetAudience ? `Target audience: ${targetAudience}.` : '';
+  const style     = visualStyle    ? `Visual style: ${visualStyle}.`    : '';
+  const voice     = brandVoice     ? `Brand personality: ${brandVoice}.` : '';
 
-  // Summarize the caption into a visual scene — avoid text-heavy generation
   const sceneBrief = captionText.length > 200
     ? captionText.slice(0, 200).replace(/[#@].*/g, '').trim()
     : captionText.replace(/[#@].*/g, '').trim();
@@ -56,7 +43,6 @@ function buildImagePrompt(captionText, platform, brandConfig = {}) {
     guidance,
     colors,
     audience,
-    industry_,
     style,
     voice,
     'Photorealistic or polished illustration. No text overlays. No watermarks. No borders.',
@@ -64,3 +50,4 @@ function buildImagePrompt(captionText, platform, brandConfig = {}) {
 }
 
 module.exports = { buildImagePrompt };
+
