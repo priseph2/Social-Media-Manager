@@ -26,10 +26,11 @@ const ENV_GROUPS: Array<{
   },
   {
     group: 'AI Providers',
-    description: 'Language model APIs',
+    description: 'Language model and image generation APIs',
     vars: [
       { key: 'ANTHROPIC_API_KEY', label: 'Anthropic API Key', notes: 'sk-ant-... — primary LLM for content generation', serviceKey: 'anthropic' },
-      { key: 'OPENAI_API_KEY', label: 'OpenAI API Key', notes: 'Optional — for embeddings or fallback', serviceKey: 'openai' },
+      { key: 'OPENAI_API_KEY', label: 'OpenAI API Key', notes: 'sk-... — required for DALL-E 3 image generation', serviceKey: 'openai' },
+      { key: 'GOOGLE_API_KEY', label: 'Google AI API Key', notes: 'Gemini / Imagen 4 — required for Imagen 4 Fast & Standard providers', serviceKey: 'google' },
     ],
   },
   {
@@ -180,8 +181,12 @@ SUPABASE_SERVICE_KEY=eyJhbGci...
 REDIS_URL=rediss://default:password@host:port
 MONGODB_URI=mongodb+srv://user:pass@cluster/db
 
-# AI
+# AI — Language Models
 ANTHROPIC_API_KEY=sk-ant-api03-...
+
+# AI — Image Generation
+OPENAI_API_KEY=sk-...           # DALL-E 3 provider
+GOOGLE_API_KEY=AIza...          # Imagen 4 Fast / Standard providers
 
 # Payments
 PAYSTACK_SECRET_KEY=sk_live_...

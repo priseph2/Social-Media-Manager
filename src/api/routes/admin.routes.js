@@ -326,20 +326,30 @@ router.get('/usage', async (req, res, next) => {
     const db = getSupabaseClient();
     const period = req.query.period || new Date().toISOString().slice(0, 7);
 
-    const [tenantsRes, usageRes] = await Promise.all([
+    const [tenantsRes, usageRes, imageRes] = await Promise.all([
       db.from('tenants').select('id, name, plan'),
-      db.from('usage_records').select('tenant_id, skill, model, cost_usd, created_at').eq('billing_period', period),
+      db.from('usage_records').select('tenant_id, skill, model, cost_usd, ops_count').eq('billing_period', period),
+      db.from('usage_records').select('tenant_id, image_count, image_cost_usd').eq('billing_period', period).gt('image_count', 0),
     ]);
 
     const tenantMap = Object.fromEntries((tenantsRes.data || []).map((t) => [t.id, t]));
-    const usage = usageRes.data || [];
+    const usage = (usageRes.data || []).filter((r) => (r.ops_count || 0) > 0);
+    const imageUsage = imageRes.data || [];
 
+    // AI ops aggregation
     const byTenant = {};
     usage.forEach((r) => {
-      if (!byTenant[r.tenant_id]) byTenant[r.tenant_id] = { ops: 0, cost: 0, bySkill: {} };
-      byTenant[r.tenant_id].ops++;
+      if (!byTenant[r.tenant_id]) byTenant[r.tenant_id] = { ops: 0, cost: 0, images: 0, imageCost: 0, bySkill: {} };
+      byTenant[r.tenant_id].ops += r.ops_count || 1;
       byTenant[r.tenant_id].cost += r.cost_usd || 0;
-      byTenant[r.tenant_id].bySkill[r.skill] = (byTenant[r.tenant_id].bySkill[r.skill] || 0) + 1;
+      byTenant[r.tenant_id].bySkill[r.skill] = (byTenant[r.tenant_id].bySkill[r.skill] || 0) + (r.ops_count || 1);
+    });
+
+    // Image ops aggregation (merge into same byTenant map)
+    imageUsage.forEach((r) => {
+      if (!byTenant[r.tenant_id]) byTenant[r.tenant_id] = { ops: 0, cost: 0, images: 0, imageCost: 0, bySkill: {} };
+      byTenant[r.tenant_id].images += r.image_count || 0;
+      byTenant[r.tenant_id].imageCost += r.image_cost_usd || 0;
     });
 
     const byTenantList = Object.entries(byTenant)
@@ -349,6 +359,8 @@ router.get('/usage', async (req, res, next) => {
         plan: tenantMap[tenantId]?.plan || '—',
         ops: u.ops,
         costUsd: parseFloat(u.cost.toFixed(4)),
+        images: u.images,
+        imageCostUsd: parseFloat(u.imageCost.toFixed(4)),
         topSkill: Object.entries(u.bySkill).sort((a, b) => b[1] - a[1])[0]?.[0] || null,
         bySkill: u.bySkill,
       }))
@@ -356,17 +368,22 @@ router.get('/usage', async (req, res, next) => {
 
     const bySkill = usage.reduce((acc, r) => {
       if (!acc[r.skill]) acc[r.skill] = { ops: 0, cost: 0 };
-      acc[r.skill].ops++;
+      acc[r.skill].ops += r.ops_count || 1;
       acc[r.skill].cost += r.cost_usd || 0;
       return acc;
     }, {});
     Object.values(bySkill).forEach((v) => { v.cost = parseFloat(v.cost.toFixed(4)); });
 
+    const totalImages = imageUsage.reduce((s, r) => s + (r.image_count || 0), 0);
+    const totalImageCost = imageUsage.reduce((s, r) => s + (r.image_cost_usd || 0), 0);
+
     res.json({
       period,
       totals: {
-        ops: usage.length,
+        ops: usage.reduce((s, r) => s + (r.ops_count || 1), 0),
         costUsd: parseFloat(usage.reduce((s, r) => s + (r.cost_usd || 0), 0).toFixed(4)),
+        images: totalImages,
+        imageCostUsd: parseFloat(totalImageCost.toFixed(4)),
       },
       byTenant: byTenantList,
       bySkill,
