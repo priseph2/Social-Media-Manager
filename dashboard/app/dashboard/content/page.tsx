@@ -23,6 +23,9 @@ interface ScheduledPost {
   selectedVariation?: number;
   brandReview?: { status: string; qualityScore?: number; feedback?: string };
   input?: Record<string, unknown>;
+  imageUrl?: string;
+  imageStatus?: string;
+  imageModel?: string;
 }
 
 interface Localisation {
@@ -171,6 +174,16 @@ function ScheduledTab() {
   const [posts, setPosts] = useState<ScheduledPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [regenerating, setRegenerating] = useState<Record<string, boolean>>({});
+
+  async function regenerateImage(id: string) {
+    setRegenerating((r) => ({ ...r, [id]: true }));
+    try {
+      await apiFetch(`/api/content/${id}/regenerate-image`, { method: 'POST' });
+      setPosts((prev) => prev.map((p) => p.id === id ? { ...p, imageStatus: 'generating' } : p));
+    } catch { /* leave current state */ }
+    finally { setRegenerating((r) => ({ ...r, [id]: false })); }
+  }
 
   useEffect(() => {
     apiFetch<{ data: ScheduledPost[] }>('/api/analytics/content?limit=30')
@@ -262,6 +275,40 @@ function ScheduledTab() {
                           </div>
                         ))}
                       </div>
+
+                      {/* Generated image — only for approved social captions */}
+                      {(p.status === 'approved' || p.brandReview?.status === 'approved') && (
+                        <div className="mt-4 pt-4 border-t border-slate-200">
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                              Generated Image
+                              {p.imageModel && (
+                                <span className="ml-2 font-normal text-slate-400 normal-case">{p.imageModel}</span>
+                              )}
+                            </p>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); regenerateImage(p.id); }}
+                              disabled={regenerating[p.id] || p.imageStatus === 'generating'}
+                              className="text-xs text-indigo-600 hover:text-indigo-800 font-medium disabled:opacity-40"
+                            >
+                              {regenerating[p.id] ? 'Queuing…' : p.imageUrl ? 'Regenerate' : 'Generate Image'}
+                            </button>
+                          </div>
+                          {(regenerating[p.id] || p.imageStatus === 'generating') ? (
+                            <p className="text-xs text-slate-400 italic flex items-center gap-1">
+                              <Spinner />Generating — refresh in a moment to see result.
+                            </p>
+                          ) : p.imageUrl ? (
+                            <img
+                              src={p.imageUrl}
+                              alt="Generated social image"
+                              className="rounded-lg max-h-64 object-cover border border-slate-200"
+                            />
+                          ) : (
+                            <p className="text-xs text-slate-400">No image yet — click Generate Image to create one.</p>
+                          )}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 )}

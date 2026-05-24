@@ -7,6 +7,10 @@ const BrandGuardian = require('../../skills/brand-guardian/brand-guardian');
 const ContentGenerator = require('../../skills/content-generator/content-generator');
 const { localiseContent } = require('../../skills/content-generator/localiser');
 const { getBrandConfig } = require('../../services/brand-config');
+const { isMongoAvailable } = require('../../services/database/mongodb-client');
+const Content = require('../../models/content.model');
+const { enqueue } = require('../../orchestrator/message-queue');
+const { QUEUES, PRIORITY } = require('../../config/constants');
 
 const router = Router();
 router.use(authenticate);
@@ -79,6 +83,36 @@ router.post('/localise', checkOpsLimit, async (req, res, next) => {
  */
 router.get('/languages', (req, res) => {
   res.json({ supported: SUPPORTED_LANGUAGES });
+});
+
+/**
+ * POST /api/content/:id/regenerate-image
+ * Enqueues a new image generation job for an approved content piece.
+ */
+router.post('/:id/regenerate-image', async (req, res, next) => {
+  try {
+    if (!isMongoAvailable()) {
+      return res.status(503).json({ error: 'Content database not available' });
+    }
+
+    const content = await Content.findOne({ _id: req.params.id, tenantId: req.tenantId });
+    if (!content) return res.status(404).json({ error: 'Content not found' });
+
+    if (!['social_caption', 'image_brief'].includes(content.type)) {
+      return res.status(400).json({ error: 'Image generation is only available for social captions' });
+    }
+
+    const job = await enqueue(
+      QUEUES.IMAGE_GENERATION,
+      'generate-image',
+      { contentId: String(content._id), tenantId: req.tenantId, platform: content.platform },
+      { priority: PRIORITY.NORMAL }
+    );
+
+    await Content.findByIdAndUpdate(content._id, { imageStatus: 'generating' });
+
+    res.json({ queued: true, jobId: String(job.id) });
+  } catch (err) { next(err); }
 });
 
 module.exports = router;

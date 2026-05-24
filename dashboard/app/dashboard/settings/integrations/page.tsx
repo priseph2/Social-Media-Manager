@@ -26,6 +26,11 @@ const INTEGRATIONS: Integration[] = [
   { id: 'tidio', name: 'Tidio Live Chat', desc: 'Website chat & customer service', category: 'Messaging', fields: [
     { key: 'apiKey', label: 'Tidio API Key', type: 'password' },
   ] },
+  { id: 'canva', name: 'Canva', desc: 'Branded image generation from your Canva templates. Required when your image generator is set to Canva by your admin.', category: 'Design', fields: [
+    { key: 'client_id', label: 'Client ID', type: 'text' },
+    { key: 'client_secret', label: 'Client Secret', type: 'password' },
+    { key: 'brand_template_id', label: 'Brand Template ID', type: 'text' },
+  ] },
 ];
 
 const ECOMMERCE_PLATFORMS = ['shopify', 'woocommerce', 'bigcommerce', 'wix'];
