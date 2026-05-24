@@ -129,8 +129,16 @@ class PaystackClient {
    */
   verifyWebhookSignature(rawBody, signature) {
     if (!this.secretKey || !signature) return false;
-    const hash = crypto.createHmac('sha512', this.secretKey).update(rawBody, 'utf8').digest('hex');
-    return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(signature, 'hex'));
+    try {
+      const hash = crypto.createHmac('sha512', this.secretKey).update(rawBody, 'utf8').digest('hex');
+      const a = Buffer.from(hash, 'hex');
+      const b = Buffer.from(signature, 'hex');
+      // timingSafeEqual throws if lengths differ; reject mismatched lengths explicitly
+      if (a.length !== b.length) return false;
+      return crypto.timingSafeEqual(a, b);
+    } catch {
+      return false;
+    }
   }
 }
 

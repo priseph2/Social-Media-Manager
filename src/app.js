@@ -18,14 +18,15 @@ const analyticsRoutes = require('./api/routes/analytics.routes');
 const tenantsRoutes = require('./api/routes/tenants.routes');
 const billingRoutes = require('./api/routes/billing.routes');
 
-// Billing
-const { tenantStorage } = require('./services/billing/usage-meter');
-
 const app = express();
 
 // ── Security ────────────────────────────────────────────────────────────────
 app.use(helmet());
-app.use(cors({ origin: process.env.ALLOWED_ORIGINS?.split(',') || '*' }));
+const corsOrigins = process.env.ALLOWED_ORIGINS?.split(',').map((s) => s.trim());
+if (!corsOrigins?.length && process.env.NODE_ENV === 'production') {
+  logger.warn('ALLOWED_ORIGINS not set — CORS blocking all cross-origin requests in production');
+}
+app.use(cors({ origin: corsOrigins?.length ? corsOrigins : (process.env.NODE_ENV !== 'production' ? '*' : false) }));
 app.use(rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100,
@@ -33,18 +34,16 @@ app.use(rateLimit({
 }));
 
 // ── Body parsing ─────────────────────────────────────────────────────────────
-app.use(express.json({ limit: '2mb' }));
+// The verify callback captures rawBody for HMAC verification (Paystack, Shopify, WhatsApp).
+// Must run before any route handlers that need req.rawBody.
+app.use(express.json({
+  limit: '2mb',
+  verify: (req, res, buf) => { req.rawBody = buf.toString('utf8'); },
+}));
 
 // ── Health check (no auth) ───────────────────────────────────────────────────
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'AI Social Media Manager', timestamp: new Date().toISOString() });
-});
-
-// ── Tenant context propagation for usage metering ─────────────────────────
-// Wraps every authenticated HTTP request so Claude calls inside route handlers
-// are attributed to the correct tenant via AsyncLocalStorage.
-app.use((req, res, next) => {
-  tenantStorage.run({ tenantId: req.tenantId || null, skill: 'api' }, () => next());
 });
 
 // ── Routes ───────────────────────────────────────────────────────────────────

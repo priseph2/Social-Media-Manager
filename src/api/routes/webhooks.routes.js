@@ -28,7 +28,7 @@ router.get('/whatsapp', (req, res) => {
   res.sendStatus(403);
 });
 
-router.post('/whatsapp', express_raw_body, async (req, res) => {
+router.post('/whatsapp', async (req, res) => {
   // Verify Meta x-hub-signature-256 before processing
   const appSecret = process.env.META_APP_SECRET || process.env.WHATSAPP_APP_SECRET;
   const signature = req.headers['x-hub-signature-256'];
@@ -107,7 +107,7 @@ router.post('/whatsapp', express_raw_body, async (req, res) => {
  *
  * Required env: SHOPIFY_WEBHOOK_SECRET
  */
-router.post('/shopify', express_raw_body, async (req, res) => {
+router.post('/shopify', async (req, res) => {
   const hmac = req.headers['x-shopify-hmac-sha256'];
   const secret = process.env.SHOPIFY_WEBHOOK_SECRET;
 
@@ -333,13 +333,6 @@ async function resolveTenantByPhoneNumberId(phoneNumberId) {
     .maybeSingle();
   if (error || !data) return null;
   return data.tenant_id;
-}
-
-/** Middleware: capture raw body as a proper Buffer for HMAC verification */
-function express_raw_body(req, res, next) {
-  const chunks = [];
-  req.on('data', (chunk) => { chunks.push(chunk); });
-  req.on('end', () => { req.rawBody = Buffer.concat(chunks).toString('utf8'); next(); });
 }
 
 /** Constant-time HMAC-SHA256 comparison to prevent timing attacks (Shopify) */

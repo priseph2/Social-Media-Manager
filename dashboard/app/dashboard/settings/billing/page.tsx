@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { apiRequest } from '@/lib/api';
@@ -87,6 +87,7 @@ export default function BillingPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const verifyAttempted = useRef(false);
 
   const load = useCallback(async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -111,9 +112,10 @@ export default function BillingPage() {
   useEffect(() => {
     load();
 
-    // If redirected back from Paystack with a reference, verify the payment
+    // If redirected back from Paystack with a reference, verify the payment (once only)
     const reference = searchParams.get('trxref') || searchParams.get('reference');
-    if (searchParams.get('payment') === 'verify' && reference) {
+    if (searchParams.get('payment') === 'verify' && reference && !verifyAttempted.current) {
+      verifyAttempted.current = true;
       verifyPayment(reference);
     }
   }, [load, searchParams]);

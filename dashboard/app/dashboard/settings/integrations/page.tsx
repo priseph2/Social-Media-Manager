@@ -37,7 +37,7 @@ const ECOMMERCE_FIELDS: Record<string, IntegrationField[]> = {
   ],
   woocommerce: [
     { key: 'siteUrl', label: 'Site URL (e.g. https://mystore.com)', type: 'text' },
-    { key: 'consumerKey', label: 'Consumer Key (ck_…)', type: 'text' },
+    { key: 'consumerKey', label: 'Consumer Key (ck_…)', type: 'password' },
     { key: 'consumerSecret', label: 'Consumer Secret (cs_…)', type: 'password' },
   ],
   bigcommerce: [
@@ -147,7 +147,7 @@ export default function IntegrationsPage() {
                     <button onClick={() => save(integration.id)} disabled={saving} className="bg-indigo-600 text-white text-sm px-4 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-60 transition-colors">
                       {saving ? 'Saving…' : 'Save credentials'}
                     </button>
-                    <button onClick={() => setActiveForm(null)} className="text-sm text-slate-500 hover:text-slate-700 px-4 py-2">Cancel</button>
+                    <button onClick={() => { setActiveForm(null); setFormValues({}); }} className="text-sm text-slate-500 hover:text-slate-700 px-4 py-2">Cancel</button>
                   </div>
                 </div>
               )}

@@ -163,7 +163,13 @@ router.post('/verify', authenticate, async (req, res) => {
       return res.status(402).json({ error: 'Payment not successful', status: tx.status });
     }
 
-    const plan = tx.metadata?.plan || tx.plan?.name;
+    // Normalise plan name to lowercase to match PLANS keys; reject unknown plans
+    const rawPlan = tx.metadata?.plan || tx.plan?.plan_code || tx.plan?.name;
+    const plan = typeof rawPlan === 'string' ? rawPlan.toLowerCase() : null;
+    if (!plan || !PLANS[plan]) {
+      logger.warn('POST /billing/verify: unknown or missing plan in transaction', { reference, rawPlan });
+      return res.status(400).json({ error: 'Could not determine plan from transaction. Contact support.' });
+    }
     const subscriptionCode = tx.subscription?.subscription_code;
     const customerCode = tx.customer?.customer_code;
     const authCode = tx.authorization?.authorization_code;
@@ -241,7 +247,7 @@ router.delete('/subscription', authenticate, async (req, res) => {
  * Handles Paystack asynchronous events (mounted separately in app.js under /webhooks).
  * HMAC-SHA512 verified using the secret key.
  */
-router.post('/paystack', capture_raw_body, async (req, res) => {
+router.post('/paystack', async (req, res) => {
   const signature = req.headers['x-paystack-signature'];
   if (!paystack.verifyWebhookSignature(req.rawBody, signature)) {
     logger.warn('Paystack webhook: invalid signature');
@@ -328,12 +334,6 @@ async function handlePaystackEvent(event, data, tenantId) {
     default:
       logger.debug(`Paystack: unhandled event ${event}`);
   }
-}
-
-function capture_raw_body(req, res, next) {
-  const chunks = [];
-  req.on('data', (chunk) => { chunks.push(chunk); });
-  req.on('end', () => { req.rawBody = Buffer.concat(chunks).toString('utf8'); next(); });
 }
 
 module.exports = router;

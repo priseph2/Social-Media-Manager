@@ -28,6 +28,9 @@ const logger = require('../../utils/logger').forSkill('data-aggregator');
  * (backwards-compatible with legacy single-tenant operation).
  */
 async function aggregateAll(date = new Date(), tenantId = null) {
+  if (!(date instanceof Date) || isNaN(date.getTime())) {
+    throw new Error(`aggregateAll: invalid date value: ${date}`);
+  }
   const dateStr = date.toISOString().split('T')[0];
   logger.info(`Aggregating all metrics for ${dateStr}`, { tenantId });
 

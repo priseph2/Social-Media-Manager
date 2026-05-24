@@ -63,6 +63,9 @@ function requirePlan(...allowedPlans) {
  *   router.post('/generate', authenticate, checkOpsLimit, handler)
  */
 async function checkOpsLimit(req, res, next) {
+  if (!req.tenantId) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
   try {
     const remaining = await hasOpsRemaining(req.tenantId);
     if (!remaining) {

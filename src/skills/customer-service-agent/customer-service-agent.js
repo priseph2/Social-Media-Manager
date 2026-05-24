@@ -110,7 +110,7 @@ class CustomerServiceAgent extends BaseSkill {
         cachedSystemBlock(systemPrompt),
         cachedSystemBlock(`BRAND CONTEXT:\n${brandContext}`),
       ],
-      messages: [{ role: 'user', content: `${context}\n\nCUSTOMER MESSAGE:\n"${customerMessage}"` }],
+      messages: [{ role: 'user', content: `${context}\n\nCUSTOMER MESSAGE:\n"${customerMessage.slice(0, 2000)}"` }],
       tools: [RESPONSE_TOOL],
       label: `Customer Service (${channel})`,
     });

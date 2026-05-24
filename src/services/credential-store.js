@@ -9,7 +9,7 @@ const CACHE_TTL_MS = 10 * 60 * 1000;
 async function getCredentials(tenantId, service) {
   if (!tenantId) return null;
 
-  const cacheKey = `${tenantId}:${service}`;
+  const cacheKey = JSON.stringify([tenantId, service]);
   const cached = _cache.get(cacheKey);
   if (cached && Date.now() - cached.cachedAt < CACHE_TTL_MS) {
     return cached.value;

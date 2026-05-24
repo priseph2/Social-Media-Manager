@@ -31,7 +31,9 @@ function initScheduler() {
         tenantId,
         trigger: 'scheduled',
         date: new Date().toISOString(),
-      }, { priority: PRIORITY.NORMAL });
+      }, { priority: PRIORITY.NORMAL }).catch((err) =>
+        logger.error('[Scheduler] Failed to enqueue content job', { tenantId, error: err.message })
+      );
     }
   });
 
@@ -43,7 +45,9 @@ function initScheduler() {
       await enqueue(QUEUES.ANALYTICS, 'aggregate-daily-metrics', {
         tenantId,
         date: new Date().toISOString(),
-      }, { priority: PRIORITY.LOW });
+      }, { priority: PRIORITY.LOW }).catch((err) =>
+        logger.error('[Scheduler] Failed to enqueue analytics job', { tenantId, error: err.message })
+      );
     }
   });
 
@@ -56,7 +60,9 @@ function initScheduler() {
         tenantId,
         trigger: 'scheduled',
         date: new Date().toISOString(),
-      }, { priority: PRIORITY.NORMAL });
+      }, { priority: PRIORITY.NORMAL }).catch((err) =>
+        logger.error('[Scheduler] Failed to enqueue newsletter job', { tenantId, error: err.message })
+      );
     }
   });
 

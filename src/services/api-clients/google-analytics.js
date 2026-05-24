@@ -35,10 +35,10 @@ class GoogleAnalyticsAPI {
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
-  async _getAccessToken(clientEmail, privateKey) {
-    const cacheKey = clientEmail;
+  async _getAccessToken(clientEmail, privateKey, propertyId = '') {
+    const cacheKey = `${clientEmail}\0${propertyId}`;
     if (
-      this._tokenCache?.email === cacheKey &&
+      this._tokenCache?.cacheKey === cacheKey &&
       Date.now() < this._tokenCache.expiresAt
     ) {
       return this._tokenCache.token;
@@ -76,7 +76,7 @@ class GoogleAnalyticsAPI {
 
     const { access_token, expires_in } = await res.json();
     this._tokenCache = {
-      email: cacheKey,
+      cacheKey,
       token: access_token,
       expiresAt: Date.now() + (expires_in - 60) * 1000,
     };
@@ -94,7 +94,7 @@ class GoogleAnalyticsAPI {
       throw new Error('GA4: missing propertyId, clientEmail, or privateKey');
     }
 
-    const token = await this._getAccessToken(clientEmail, privateKey);
+    const token = await this._getAccessToken(clientEmail, privateKey, propertyId);
     const { default: fetch } = await import('node-fetch').catch(() => ({ default: globalThis.fetch }));
 
     const res = await fetch(REPORT_URL(propertyId), {

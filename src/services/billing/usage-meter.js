@@ -23,6 +23,7 @@ const tenantStorage = new AsyncLocalStorage();
 const _buffer = [];
 let _flushTimer = null;
 const FLUSH_INTERVAL_MS = 5000;
+const MAX_BUFFER_SIZE = 5000; // Prevent OOM during sustained Supabase outages
 
 /**
  * Records usage from one Claude API call.
@@ -35,6 +36,10 @@ const FLUSH_INTERVAL_MS = 5000;
  */
 function recordUsage(tenantId, model, usage, skill = null) {
   if (!tenantId) return;
+  if (_buffer.length >= MAX_BUFFER_SIZE) {
+    logger.warn('Usage meter buffer at capacity — dropping record', { tenantId, model });
+    return;
+  }
 
   const billingPeriod = new Date().toISOString().slice(0, 7); // 'YYYY-MM'
   const costUsd = estimateCost(
@@ -76,16 +81,21 @@ async function flush() {
   try {
     const { error } = await supabase.from('usage_records').insert(rows);
     if (error) {
-      // Restore rows so they are retried on the next flush cycle
-      _buffer.unshift(...rows);
-      logger.warn('Usage meter flush error — rows restored for retry', { error: error.message, rows: rows.length });
+      // Restore rows for retry, but cap the buffer to prevent OOM
+      const capacity = MAX_BUFFER_SIZE - _buffer.length;
+      const toRestore = rows.slice(0, Math.max(0, capacity));
+      if (toRestore.length) _buffer.unshift(...toRestore);
+      const dropped = rows.length - toRestore.length;
+      logger.warn('Usage meter flush error — rows restored for retry', { error: error.message, restored: toRestore.length, dropped });
     } else {
       logger.debug(`Usage meter flushed ${rows.length} records`);
     }
   } catch (err) {
-    // Restore rows so they are retried on the next flush cycle
-    _buffer.unshift(...rows);
-    logger.warn('Usage meter flush exception — rows restored for retry', { error: err.message });
+    const capacity = MAX_BUFFER_SIZE - _buffer.length;
+    const toRestore = rows.slice(0, Math.max(0, capacity));
+    if (toRestore.length) _buffer.unshift(...toRestore);
+    const dropped = rows.length - toRestore.length;
+    logger.warn('Usage meter flush exception — rows restored for retry', { error: err.message, restored: toRestore.length, dropped });
   }
 }
 

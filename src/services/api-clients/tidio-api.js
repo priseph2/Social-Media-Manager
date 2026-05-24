@@ -70,6 +70,13 @@ class TidioAPI {
     }
   }
 
+  _validateConversationId(conversationId) {
+    if (!conversationId || !/^[a-zA-Z0-9_-]{1,100}$/.test(String(conversationId))) {
+      throw new Error(`Invalid Tidio conversationId: ${conversationId}`);
+    }
+    return encodeURIComponent(String(conversationId));
+  }
+
   /**
    * Sends an operator message into a conversation.
    * conversationId: Tidio conversation ID
@@ -78,7 +85,8 @@ class TidioAPI {
   async sendMessage(conversationId, message) {
     if (!this.available) return { success: false, reason: 'Tidio not configured' };
     try {
-      await this._request(`/conversations/${conversationId}/messages`, 'POST', {
+      const safeId = this._validateConversationId(conversationId);
+      await this._request(`/conversations/${safeId}/messages`, 'POST', {
         message,
         type: 'chat',
       });
@@ -96,7 +104,8 @@ class TidioAPI {
   async closeConversation(conversationId) {
     if (!this.available) return { success: false };
     try {
-      await this._request(`/conversations/${conversationId}`, 'PATCH', { status: 'closed' });
+      const safeId = this._validateConversationId(conversationId);
+      await this._request(`/conversations/${safeId}`, 'PATCH', { status: 'closed' });
       return { success: true };
     } catch (err) {
       logger.warn('Tidio closeConversation failed', { conversationId, error: err.message });
@@ -110,8 +119,10 @@ class TidioAPI {
   async getMessages(conversationId, limit = 20) {
     if (!this.available) return [];
     try {
+      const safeId = this._validateConversationId(conversationId);
+      const params = new URLSearchParams({ limit: String(parseInt(limit, 10) || 20) });
       const data = await this._request(
-        `/conversations/${conversationId}/messages?limit=${limit}`
+        `/conversations/${safeId}/messages?${params}`
       );
       const list = data?.messages ?? data ?? [];
       return (Array.isArray(list) ? list : []).map((m) => ({

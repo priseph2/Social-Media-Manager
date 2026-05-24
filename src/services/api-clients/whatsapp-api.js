@@ -83,6 +83,7 @@ class WhatsAppAPI {
    * @returns {Promise<object>}
    */
   async _request(path, method, token, body = null) {
+    const { default: fetch } = await import('node-fetch').catch(() => ({ default: globalThis.fetch }));
     const url = `${BASE_URL}${path}`;
     const headers = {
       Authorization: `Bearer ${token}`,
@@ -116,7 +117,7 @@ class WhatsAppAPI {
     const creds = await this.getCredentials(tenantId);
     if (!this.isConfigured(creds)) throw new Error('WhatsApp is not configured for this tenant.');
 
-    logger.info('[WhatsApp] Sending text message', { to, tenantId });
+    logger.info('[WhatsApp] Sending text message', { toSuffix: to.slice(-4), tenantId });
 
     const payload = {
       messaging_product: 'whatsapp',
@@ -143,7 +144,7 @@ class WhatsAppAPI {
     const creds = await this.getCredentials(tenantId);
     if (!this.isConfigured(creds)) throw new Error('WhatsApp is not configured for this tenant.');
 
-    logger.info('[WhatsApp] Sending template message', { to, templateName, languageCode, tenantId });
+    logger.info('[WhatsApp] Sending template message', { toSuffix: to.slice(-4), templateName, languageCode, tenantId });
 
     const payload = {
       messaging_product: 'whatsapp',
@@ -192,7 +193,12 @@ class WhatsAppAPI {
     const creds = await this.getCredentials(tenantId);
     if (!this.isConfigured(creds)) throw new Error('WhatsApp is not configured for this tenant.');
 
-    logger.info('[WhatsApp] Fetching media URL', { mediaId, tenantId });
+    // Validate mediaId: WhatsApp media IDs are numeric strings
+    if (!/^\d+$/.test(String(mediaId))) {
+      throw new Error(`WhatsApp getMediaUrl: invalid mediaId format: ${mediaId}`);
+    }
+
+    logger.info('[WhatsApp] Fetching media URL', { tenantId });
 
     return this._request(`/${mediaId}`, 'GET', creds.token);
   }

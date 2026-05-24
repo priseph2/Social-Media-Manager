@@ -10,19 +10,34 @@ const logger = require('../../utils/logger');
 const router = express.Router();
 router.use(authenticate);
 
+const ALLOWED_CREDENTIAL_SERVICES = new Set([
+  'ecommerce', 'twitter', 'instagram', 'facebook', 'linkedin',
+  'ga4', 'mailchimp', 'whatsapp', 'tidio', 'buffer', 'shopify',
+]);
+const SLUG_MAX_LENGTH = 63;
+
 // POST /api/tenants/setup — create tenant + assign to user
 router.post('/setup', async (req, res, next) => {
   try {
     const { name, slug } = req.body;
     if (!name || !slug) return res.status(400).json({ error: 'name and slug are required' });
+    if (!req.userId) return res.status(400).json({ error: 'User identity unavailable — cannot create tenant' });
 
     const supabase = getSupabaseClient();
     if (!supabase) return res.status(503).json({ error: 'Database unavailable' });
 
+    // Prevent duplicate tenant creation for the same user
+    if (req.tenantId) {
+      return res.status(409).json({ error: 'Account already has a tenant. Contact support to manage multiple tenants.' });
+    }
+
+    const sanitisedSlug = slug.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, SLUG_MAX_LENGTH);
+    if (sanitisedSlug.length < 3) return res.status(400).json({ error: 'Slug must be at least 3 characters' });
+
     // Create tenant
     const { data: tenant, error: tenantErr } = await supabase
       .from('tenants')
-      .insert({ name, slug: slug.toLowerCase().replace(/[^a-z0-9-]/g, '-'), plan: 'starter', status: 'onboarding' })
+      .insert({ name: String(name).slice(0, 200), slug: sanitisedSlug, plan: 'starter', status: 'onboarding' })
       .select()
       .single();
 
@@ -90,6 +105,9 @@ router.put('/me/credentials/:service', async (req, res, next) => {
   try {
     if (!req.tenantId) return res.status(400).json({ error: 'No tenant context' });
     const { service } = req.params;
+    if (!ALLOWED_CREDENTIAL_SERVICES.has(service)) {
+      return res.status(400).json({ error: `Unknown service: ${service}` });
+    }
     const { credentials, platformType } = req.body;
     if (!credentials) return res.status(400).json({ error: 'credentials required' });
     await setCredentials(req.tenantId, service, credentials, platformType);

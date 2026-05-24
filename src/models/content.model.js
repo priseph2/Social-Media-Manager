@@ -63,5 +63,7 @@ const contentSchema = new mongoose.Schema(
 contentSchema.index({ tenantId: 1, type: 1, createdAt: -1 });
 contentSchema.index({ tenantId: 1, 'brandReview.status': 1 });
 contentSchema.index({ tenantId: 1, platform: 1, postedAt: -1 });
+contentSchema.index({ postedAt: -1, 'brandReview.status': 1 }); // revenue attribution window queries
+contentSchema.index({ tenantId: 1, 'performance.engagementRate': -1 }); // content insights sort
 
 module.exports = mongoose.model('Content', contentSchema);

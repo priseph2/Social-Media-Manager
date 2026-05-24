@@ -1,6 +1,7 @@
 'use strict';
 
 const { getSupabaseClient } = require('../../services/database/supabase-client');
+const { tenantStorage } = require('../../services/billing/usage-meter');
 const logger = require('../../utils/logger');
 
 /**
@@ -24,14 +25,14 @@ async function authenticate(req, res, next) {
     if (!req.tenantId) {
       logger.warn('API_SECRET_KEY auth used but DEFAULT_TENANT_ID not set — tenant context unavailable');
     }
-    return next();
+    return tenantStorage.run({ tenantId: req.tenantId, skill: 'api' }, next);
   }
 
   // ── Supabase JWT ──────────────────────────────────────────────────────────
   const supabase = getSupabaseClient();
   if (!supabase) {
-    logger.warn('Supabase unavailable — falling back to open access (dev mode)');
-    return next();
+    logger.warn('Supabase unavailable — rejecting request (fail-closed)');
+    return res.status(503).json({ error: 'Authentication service unavailable. Please try again shortly.' });
   }
 
   try {
@@ -42,7 +43,8 @@ async function authenticate(req, res, next) {
     req.tenantId = user.app_metadata?.tenant_id || null;
     req.userId = user.id;
     req.userEmail = user.email;
-    next();
+    // Propagate tenant context for usage metering (AsyncLocalStorage)
+    tenantStorage.run({ tenantId: req.tenantId, skill: 'api' }, next);
   } catch (err) {
     logger.error('Auth token verification failed', { error: err.message });
     res.status(401).json({ error: 'Token verification failed' });

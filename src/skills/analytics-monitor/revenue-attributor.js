@@ -56,6 +56,10 @@ const ATTRIBUTION_TOOL = {
  * @param {string} platform  — 'shopify' | 'woocommerce' etc (for the audit log)
  */
 async function attributeOrder(order, tenantId, platform = 'shopify') {
+  if (!tenantId) {
+    logger.warn('attributeOrder called without tenantId — skipping to prevent cross-tenant attribution');
+    return null;
+  }
   if (!isMongoAvailable()) {
     logger.warn('MongoDB unavailable — skipping revenue attribution');
     return null;

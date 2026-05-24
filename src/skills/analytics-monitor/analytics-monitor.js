@@ -269,27 +269,29 @@ class AnalyticsMonitor extends BaseSkill {
   // ── Optimal Post Times ──────────────────────────────────────────────────────
 
   async getOptimalPostTimes(job) {
-    // Return cached result if less than 24 hours old
-    const cacheAge = this._optimalPostTimesCachedAt
-      ? Date.now() - this._optimalPostTimesCachedAt
-      : Infinity;
+    const tenantId = job.data.tenantId || null;
+    const cacheKey = tenantId || '__default__';
+    const cached = this._optimalPostTimesCache?.[cacheKey];
+    const cacheAge = cached ? Date.now() - cached.cachedAt : Infinity;
 
-    if (this._optimalPostTimesCache && cacheAge < 24 * 60 * 60 * 1000) {
-      return { ...this._optimalPostTimesCache, fromCache: true, jobId: job.id };
+    if (cached && cacheAge < 24 * 60 * 60 * 1000) {
+      return { ...cached.result, fromCache: true, jobId: job.id };
     }
 
-    // Pull posting history from Supabase
-    const postHistory = await supabaseQuery((db) =>
-      db.from('content_schedule')
+    // Pull posting history scoped to this tenant
+    const postHistory = await supabaseQuery((db) => {
+      let q = db.from('content_schedule')
         .select('platform, scheduled_at, status')
         .eq('status', 'posted')
         .order('scheduled_at', { ascending: false })
-        .limit(200)
-    ) || [];
+        .limit(200);
+      if (tenantId) q = q.eq('tenant_id', tenantId);
+      return q;
+    }) || [];
 
     const result = await calculateOptimalPostTimes(postHistory);
-    this._optimalPostTimesCache = result;
-    this._optimalPostTimesCachedAt = Date.now();
+    if (!this._optimalPostTimesCache) this._optimalPostTimesCache = {};
+    this._optimalPostTimesCache[cacheKey] = { result, cachedAt: Date.now() };
 
     return { ...result, jobId: job.id };
   }
@@ -298,22 +300,30 @@ class AnalyticsMonitor extends BaseSkill {
 
   async analyseSalesSpike(job) {
     const { source, order } = job.data;
-    this.log.info('Analysing sales spike', { source, jobId: job.id });
+    const tenantId = job.data.tenantId || null;
+    this.log.info('Analysing sales spike', { source, jobId: job.id, tenantId });
 
-    // Look for correlated events (recent content, email campaigns)
+    const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000);
+
+    // Look for correlated events scoped to this tenant
     const [recentContent, recentCampaigns] = await Promise.all([
       isMongoAvailable()
-        ? Content.find({ postedAt: { $gte: new Date(Date.now() - 48 * 60 * 60 * 1000) } })
+        ? Content.find({
+            ...(tenantId && { tenantId }),
+            postedAt: { $gte: cutoff },
+          })
             .select('type platform postedAt')
             .limit(10)
             .lean()
         : [],
-      supabaseQuery((db) =>
-        db.from('email_campaigns')
+      supabaseQuery((db) => {
+        let q = db.from('email_campaigns')
           .select('subject, sent_at, open_rate')
           .eq('status', 'sent')
-          .gte('sent_at', new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString())
-      ) || [],
+          .gte('sent_at', cutoff.toISOString());
+        if (tenantId) q = q.eq('tenant_id', tenantId);
+        return q;
+      }) || [],
     ]);
 
     return {
@@ -338,6 +348,7 @@ class AnalyticsMonitor extends BaseSkill {
    */
   async getContentInsights(job) {
     const { platform, days = 30 } = job.data;
+    const tenantId = job.data.tenantId || null;
 
     if (!isMongoAvailable()) {
       return {
@@ -351,6 +362,7 @@ class AnalyticsMonitor extends BaseSkill {
 
     const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
     const filter = { createdAt: { $gte: cutoff }, 'brandReview.status': 'approved' };
+    if (tenantId) filter.tenantId = tenantId;
     if (platform) filter.platform = platform;
 
     const content = await Content.find(filter)

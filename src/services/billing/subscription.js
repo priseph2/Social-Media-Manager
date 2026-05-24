@@ -67,14 +67,19 @@ async function getSubscription(tenantId) {
 async function getEffectivePlan(tenantId) {
   const sub = await getSubscription(tenantId);
 
-  // Trial expired → downgrade to starter
-  if (sub.status === 'trialing' && sub.trial_ends_at) {
-    const expired = new Date(sub.trial_ends_at) < new Date();
-    if (expired) return 'starter';
+  // Trial: if trial_ends_at is null or has passed, downgrade to starter
+  if (sub.status === 'trialing') {
+    if (!sub.trial_ends_at || new Date(sub.trial_ends_at) < new Date()) return 'starter';
   }
 
   // Cancelled subscription → starter
   if (sub.status === 'cancelled') return 'starter';
+
+  // Active but billing period ended (7-day grace period for delayed webhooks)
+  if (sub.status === 'active' && sub.current_period_end) {
+    const gracePeriodMs = 7 * 24 * 60 * 60 * 1000;
+    if (new Date(sub.current_period_end) < new Date(Date.now() - gracePeriodMs)) return 'starter';
+  }
 
   return sub.plan || 'starter';
 }
