@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -208,9 +208,8 @@ function ScheduledTab() {
             const isOpen = expanded[p.id || i];
             const selected = p.variations?.[p.selectedVariation ?? 0];
             return (
-              <>
+              <React.Fragment key={p.id || i}>
                 <tr
-                  key={p.id || i}
                   onClick={() => setExpanded((e) => ({ ...e, [p.id || i]: !e[p.id || i] }))}
                   className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer"
                 >
@@ -266,7 +265,7 @@ function ScheduledTab() {
                     </td>
                   </tr>
                 )}
-              </>
+              </React.Fragment>
             );
           })}
         </tbody>
