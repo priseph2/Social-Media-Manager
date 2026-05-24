@@ -13,6 +13,7 @@ const EmailStrategist = require('../skills/email-strategist/email-strategist');
 const CustomerServiceAgent = require('../skills/customer-service-agent/customer-service-agent');
 const AnalyticsMonitor = require('../skills/analytics-monitor/analytics-monitor');
 const EcommerceOptimizer = require('../skills/ecommerce-optimizer/ecommerce-optimizer');
+const VisualDesigner = require('../skills/visual-designer');
 
 class Orchestrator {
   constructor() {
@@ -34,6 +35,7 @@ class Orchestrator {
     this.skills[SKILLS.CUSTOMER_SERVICE] = new CustomerServiceAgent();
     this.skills[SKILLS.ANALYTICS_MONITOR] = new AnalyticsMonitor();
     this.skills[SKILLS.ECOMMERCE_OPTIMIZER] = new EcommerceOptimizer();
+    this.skills[SKILLS.VISUAL_DESIGNER] = new VisualDesigner();
 
     // Register each skill as a queue worker
     registerWorker(QUEUES.BRAND_REVIEW, this.skills[SKILLS.BRAND_GUARDIAN]);
@@ -43,6 +45,7 @@ class Orchestrator {
     registerWorker(QUEUES.CUSTOMER_SERVICE, this.skills[SKILLS.CUSTOMER_SERVICE]);
     registerWorker(QUEUES.ANALYTICS, this.skills[SKILLS.ANALYTICS_MONITOR]);
     registerWorker(QUEUES.ECOMMERCE, this.skills[SKILLS.ECOMMERCE_OPTIMIZER]);
+    registerWorker(QUEUES.IMAGE_GENERATION, this.skills[SKILLS.VISUAL_DESIGNER]);
 
     this._registerEventHandlers();
     this.log.info('Orchestrator ready — all skills online');
@@ -96,10 +99,14 @@ class Orchestrator {
       await this._notifyHumanManager({ type: EVENTS.NEGATIVE_SENTIMENT, ...data });
     });
 
-    // Content approved → route to social media for scheduling
+    // Content approved → schedule post + generate image in parallel
     eventBus.subscribe(EVENTS.CONTENT_APPROVED, SKILLS.ORCHESTRATOR, async (data) => {
-      this.log.info('Content approved — routing to Social Media Manager', data);
-      await enqueue(QUEUES.SOCIAL, 'schedule-post', data, { priority: PRIORITY.NORMAL });
+      this.log.info('Content approved — routing to Social Media Manager + Visual Designer', data);
+      const jobs = [enqueue(QUEUES.SOCIAL, 'schedule-post', data, { priority: PRIORITY.NORMAL })];
+      if (data.contentId && data.type === 'social_caption') {
+        jobs.push(enqueue(QUEUES.IMAGE_GENERATION, 'generate-image', data, { priority: PRIORITY.LOW }));
+      }
+      await Promise.all(jobs);
     });
 
     // Any escalation → notify human manager

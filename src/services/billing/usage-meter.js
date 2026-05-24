@@ -167,4 +167,69 @@ async function getSkillBreakdown(tenantId, billingPeriod = null) {
   return Object.values(grouped).sort((a, b) => b.costUsd - a.costUsd);
 }
 
-module.exports = { tenantStorage, recordUsage, flush, getMonthlyUsage, getSkillBreakdown };
+/**
+ * Records one image generation call.
+ * Uses the same usage_records table, with ops_count=0 and image_count=1
+ * so AI ops quotas and image quotas are tracked independently.
+ *
+ * @param {string} tenantId
+ * @param {string} provider  - e.g. 'imagen4-fast', 'dalle3-standard', 'canva'
+ * @param {number} costUsd   - actual per-image cost from IMAGE_PROVIDER_PRICING
+ * @param {string} skill     - skill name for attribution
+ */
+function recordImageUsage(tenantId, provider, costUsd = 0, skill = 'visual-designer') {
+  if (!tenantId) {
+    logger.warn('recordImageUsage called with no tenantId — skipping', { provider, skill });
+    return;
+  }
+  if (_buffer.length >= MAX_BUFFER_SIZE) {
+    logger.warn('Usage meter buffer at capacity — dropping image record', { tenantId, provider });
+    return;
+  }
+
+  const billingPeriod = new Date().toISOString().slice(0, 7);
+  _buffer.push({
+    tenant_id: tenantId,
+    billing_period: billingPeriod,
+    skill,
+    model: provider,
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_read_tokens: 0,
+    cache_write_tokens: 0,
+    cost_usd: costUsd,
+    ops_count: 0,
+    image_count: 1,
+    image_cost_usd: costUsd,
+  });
+
+  if (!_flushTimer) {
+    _flushTimer = setTimeout(flush, FLUSH_INTERVAL_MS);
+  }
+}
+
+/**
+ * Returns image generation usage totals for a tenant in the current billing period.
+ */
+async function getMonthlyImageUsage(tenantId, billingPeriod = null) {
+  const period = billingPeriod || new Date().toISOString().slice(0, 7);
+  const supabase = getSupabaseClient();
+  if (!supabase || !tenantId) return { totalImages: 0, totalImageCostUsd: 0, billingPeriod: period };
+
+  const { data, error } = await supabase
+    .from('usage_records')
+    .select('image_count, image_cost_usd')
+    .eq('tenant_id', tenantId)
+    .eq('billing_period', period)
+    .gt('image_count', 0);
+
+  if (error || !data) return { totalImages: 0, totalImageCostUsd: 0, billingPeriod: period };
+
+  return {
+    totalImages: data.reduce((sum, r) => sum + (r.image_count || 0), 0),
+    totalImageCostUsd: parseFloat(data.reduce((sum, r) => sum + (r.image_cost_usd || 0), 0).toFixed(6)),
+    billingPeriod: period,
+  };
+}
+
+module.exports = { tenantStorage, recordUsage, recordImageUsage, flush, getMonthlyUsage, getSkillBreakdown, getMonthlyImageUsage };

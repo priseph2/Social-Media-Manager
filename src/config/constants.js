@@ -19,6 +19,7 @@ module.exports = {
     ANALYTICS_MONITOR: 'analytics-monitor',
     BRAND_GUARDIAN: 'brand-guardian',
     ECOMMERCE_OPTIMIZER: 'ecommerce-optimizer',
+    VISUAL_DESIGNER: 'visual-designer',
   },
 
   // ── Queue names ────────────────────────────────────────────────────────────
@@ -31,6 +32,7 @@ module.exports = {
     BRAND_REVIEW: 'brand-review',
     ECOMMERCE: 'ecommerce',
     ORCHESTRATOR: 'orchestrator',
+    IMAGE_GENERATION: 'image-generation',
   },
 
   // ── Event names ────────────────────────────────────────────────────────────

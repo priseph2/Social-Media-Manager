@@ -15,7 +15,8 @@ const PLANS = {
     paystackPlanCode: process.env.PAYSTACK_PLAN_CODE_STARTER || '',
     limits: {
       maxBrands: 1,
-      monthlyAiOps: 500,       // AI API calls per calendar month
+      monthlyAiOps: 500,
+      monthlyImageGenerations: 30,
     },
     features: {
       socialScheduling: true,
@@ -43,6 +44,7 @@ const PLANS = {
     limits: {
       maxBrands: 3,
       monthlyAiOps: 2_000,
+      monthlyImageGenerations: 150,
     },
     features: {
       socialScheduling: true,
@@ -69,7 +71,8 @@ const PLANS = {
     paystackPlanCode: process.env.PAYSTACK_PLAN_CODE_AGENCY || '',
     limits: {
       maxBrands: Infinity,
-      monthlyAiOps: Infinity,    // unlimited
+      monthlyAiOps: Infinity,
+      monthlyImageGenerations: Infinity,
     },
     features: {
       socialScheduling: true,
@@ -141,4 +144,13 @@ function estimateCost(model, inputTokens, outputTokens, cacheReadTokens = 0, cac
   );
 }
 
-module.exports = { PLANS, MODEL_PRICING, getPlan, isFeatureEnabled, hasUnlimitedOps, estimateCost };
+// Image generation provider pricing (USD per image)
+const IMAGE_PROVIDER_PRICING = {
+  'imagen4-fast':     { costPerImage: 0.02, label: 'Imagen 4 Fast' },
+  'imagen4-standard': { costPerImage: 0.04, label: 'Imagen 4 Standard' },
+  'dalle3-standard':  { costPerImage: 0.04, label: 'DALL-E 3 Standard' },
+  'dalle3-hd':        { costPerImage: 0.08, label: 'DALL-E 3 HD' },
+  'canva':            { costPerImage: 0.05, label: 'Canva' },
+};
+
+module.exports = { PLANS, MODEL_PRICING, IMAGE_PROVIDER_PRICING, getPlan, isFeatureEnabled, hasUnlimitedOps, estimateCost };

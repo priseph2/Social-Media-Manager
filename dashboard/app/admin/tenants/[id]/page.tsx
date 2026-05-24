@@ -7,10 +7,18 @@ import { useParams } from 'next/navigation';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
+const IMAGE_PROVIDERS = [
+  { value: 'imagen4-fast',     label: 'Imagen 4 Fast ($0.02/img)' },
+  { value: 'imagen4-standard', label: 'Imagen 4 Standard ($0.04/img)' },
+  { value: 'dalle3-standard',  label: 'DALL-E 3 Standard ($0.04/img)' },
+  { value: 'dalle3-hd',        label: 'DALL-E 3 HD ($0.08/img)' },
+  { value: 'canva',            label: 'Canva (tenant credentials)' },
+];
+
 interface TenantDetail {
   tenant: {
     id: string; name: string; slug: string; plan: string; status: string;
-    created_at: string; updated_at: string;
+    image_provider: string; created_at: string; updated_at: string;
   };
   subscription: { plan: string; status: string; current_period_end: string } | null;
   connections: Array<{ platform: string; status: string; connected_at: string }>;
@@ -46,6 +54,7 @@ export default function TenantDetailPage() {
   // Edit controls
   const [editPlan, setEditPlan] = useState('');
   const [editStatus, setEditStatus] = useState('');
+  const [editImageProvider, setEditImageProvider] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
 
@@ -64,6 +73,7 @@ export default function TenantDetailPage() {
         setData(d);
         setEditPlan(d.tenant.plan);
         setEditStatus(d.tenant.status);
+        setEditImageProvider(d.tenant.image_provider || 'imagen4-fast');
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load tenant');
       } finally {
@@ -81,11 +91,11 @@ export default function TenantDetailPage() {
       const res = await fetch(`${API}/api/admin/tenants/${id}`, {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plan: editPlan, status: editStatus }),
+        body: JSON.stringify({ plan: editPlan, status: editStatus, image_provider: editImageProvider }),
       });
       if (!res.ok) throw new Error(await res.text());
       setSaveMsg('Saved');
-      setData((prev) => prev ? { ...prev, tenant: { ...prev.tenant, plan: editPlan, status: editStatus } } : prev);
+      setData((prev) => prev ? { ...prev, tenant: { ...prev.tenant, plan: editPlan, status: editStatus, image_provider: editImageProvider } } : prev);
     } catch (err) {
       setSaveMsg(err instanceof Error ? err.message : 'Save failed');
     } finally {
@@ -150,9 +160,21 @@ export default function TenantDetailPage() {
               <option value="suspended">Suspended</option>
             </select>
           </div>
+          <div>
+            <label className="block text-xs text-slate-500 mb-1">Image Generator</label>
+            <select
+              value={editImageProvider}
+              onChange={(e) => setEditImageProvider(e.target.value)}
+              className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-200"
+            >
+              {IMAGE_PROVIDERS.map((p) => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
+            </select>
+          </div>
           <button
             onClick={handleSave}
-            disabled={saving || (editPlan === tenant.plan && editStatus === tenant.status)}
+            disabled={saving || (editPlan === tenant.plan && editStatus === tenant.status && editImageProvider === (tenant.image_provider || 'imagen4-fast'))}
             className="px-4 py-1.5 text-sm bg-rose-600 text-white rounded-lg hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {saving ? 'Saving…' : 'Save Changes'}

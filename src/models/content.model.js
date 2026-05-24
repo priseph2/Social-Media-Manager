@@ -56,6 +56,10 @@ const contentSchema = new mongoose.Schema(
       },
     ],
     jobId: { type: String },
+    imageUrl: { type: String },
+    imageModel: { type: String },
+    imageAspectRatio: { type: String },
+    imageStatus: { type: String, enum: ['pending', 'generating', 'generated', 'failed'] },
   },
   { timestamps: true }
 );

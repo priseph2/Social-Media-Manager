@@ -8,6 +8,7 @@ const { getRedisClient } = require('../../services/database/redis-client');
 const { getQueue } = require('../../orchestrator/message-queue');
 const { QUEUES } = require('../../config/constants');
 const { PLANS } = require('../../config/plans');
+const { VALID_PROVIDERS, invalidateProviderCache } = require('../../services/image-generation');
 const logger = require('../../utils/logger');
 
 const router = Router();
@@ -170,12 +171,15 @@ router.get('/tenants/:id', async (req, res, next) => {
 router.patch('/tenants/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { plan, status } = req.body;
+    const { plan, status, image_provider } = req.body;
     const db = getSupabaseClient();
 
     const tenantUpdates = { updated_at: new Date().toISOString() };
     if (plan && ['starter', 'growth', 'agency'].includes(plan)) tenantUpdates.plan = plan;
     if (status && ['active', 'suspended', 'onboarding'].includes(status)) tenantUpdates.status = status;
+    if (image_provider && VALID_PROVIDERS.includes(image_provider)) {
+      tenantUpdates.image_provider = image_provider;
+    }
 
     if (Object.keys(tenantUpdates).length === 1) {
       return res.status(400).json({ error: 'No valid fields to update' });
@@ -189,6 +193,8 @@ router.patch('/tenants/:id', async (req, res, next) => {
         { onConflict: 'tenant_id' }
       );
     }
+
+    if (image_provider) invalidateProviderCache(id);
 
     logger.info(`Admin updated tenant ${id}`, { updates: tenantUpdates, adminEmail: req.adminUser.email });
     res.json({ success: true, id });
@@ -307,6 +313,7 @@ router.get('/services', async (req, res, next) => {
     checks.mailchimp = { status: process.env.MAILCHIMP_API_KEY ? 'configured' : 'not_configured' };
     checks.paystack = { status: process.env.PAYSTACK_SECRET_KEY ? 'configured' : 'not_configured' };
     checks.openai = { status: process.env.OPENAI_API_KEY ? 'configured' : 'not_configured' };
+    checks.google = { status: process.env.GOOGLE_API_KEY ? 'configured' : 'not_configured' };
 
     res.json({ services: checks, checkedAt: new Date().toISOString() });
   } catch (err) { next(err); }
