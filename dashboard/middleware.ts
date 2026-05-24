@@ -24,13 +24,17 @@ export async function middleware(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   const { pathname } = request.nextUrl;
 
-  const isAuthRoute = pathname.startsWith('/login') || pathname.startsWith('/signup') || pathname.startsWith('/onboarding');
+  const isLoginOrSignup = pathname.startsWith('/login') || pathname.startsWith('/signup');
 
-  if (!user && !isAuthRoute) {
+  // Unauthenticated users may only access login and signup
+  if (!user && !isLoginOrSignup) {
     return NextResponse.redirect(new URL('/login', request.url));
   }
 
-  if (user && isAuthRoute) {
+  // Authenticated users don't need login/signup — but /onboarding is allowed
+  // (dashboard layout redirects tenantless users to /onboarding; middleware must not
+  // redirect them back to /dashboard, which would create an infinite loop)
+  if (user && isLoginOrSignup) {
     return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 

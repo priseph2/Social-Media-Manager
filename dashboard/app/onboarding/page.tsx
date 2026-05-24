@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { apiRequest } from '@/lib/api';
 import { useRouter } from 'next/navigation';
@@ -24,6 +24,13 @@ export default function OnboardingPage() {
   const [step, setStep] = useState<Step>('company');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      const tenantId = (session?.user?.app_metadata as { tenant_id?: string })?.tenant_id;
+      if (tenantId) router.replace('/dashboard');
+    });
+  }, []);
 
   const [company, setCompany] = useState({ name: '', tagline: '', industry: '', market: '', website: '', currency: 'USD' });
   const [voice, setVoice] = useState({ tone: '', personality: [] as string[], doList: '', dontList: '' });
