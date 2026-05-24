@@ -17,6 +17,7 @@ const webhookRoutes = require('./api/routes/webhooks.routes');
 const analyticsRoutes = require('./api/routes/analytics.routes');
 const tenantsRoutes = require('./api/routes/tenants.routes');
 const billingRoutes = require('./api/routes/billing.routes');
+const adminRoutes = require('./api/routes/admin.routes');
 
 const app = express();
 
@@ -47,6 +48,7 @@ app.get('/health', (req, res) => {
 });
 
 // ── Routes ───────────────────────────────────────────────────────────────────
+app.use('/api/admin', adminRoutes);
 app.use('/api/tenants', tenantsRoutes);
 app.use('/api/billing', billingRoutes);
 app.use('/api/orchestrator', orchestratorRoutes);

@@ -32,10 +32,16 @@ export async function middleware(request: NextRequest) {
   }
 
   // Authenticated users don't need login/signup — but /onboarding is allowed
-  // (dashboard layout redirects tenantless users to /onboarding; middleware must not
-  // redirect them back to /dashboard, which would create an infinite loop)
   if (user && isLoginOrSignup) {
     return NextResponse.redirect(new URL('/dashboard', request.url));
+  }
+
+  // /admin routes require super_admin role
+  if (pathname.startsWith('/admin')) {
+    const role = (user?.app_metadata as { role?: string })?.role;
+    if (role !== 'super_admin') {
+      return NextResponse.redirect(new URL('/dashboard', request.url));
+    }
   }
 
   return supabaseResponse;
