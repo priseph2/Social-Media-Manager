@@ -331,9 +331,9 @@ async function handlePaystackEvent(event, data, tenantId) {
 }
 
 function capture_raw_body(req, res, next) {
-  let data = '';
-  req.on('data', (chunk) => { data += chunk; });
-  req.on('end', () => { req.rawBody = data; next(); });
+  const chunks = [];
+  req.on('data', (chunk) => { chunks.push(chunk); });
+  req.on('end', () => { req.rawBody = Buffer.concat(chunks).toString('utf8'); next(); });
 }
 
 module.exports = router;

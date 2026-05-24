@@ -72,6 +72,7 @@ router.get('/content', async (req, res, next) => {
     if (!isMongoAvailable()) return res.json({ data: [], message: 'MongoDB not configured' });
     const { type, platform, limit = 20 } = req.query;
     const filter = {};
+    if (req.tenantId) filter.tenantId = req.tenantId;
     if (type) filter.type = type;
     if (platform) filter.platform = platform;
     const docs = await Content.find(filter).sort({ createdAt: -1 }).limit(Number(limit)).lean();
@@ -87,9 +88,11 @@ router.get('/content', async (req, res, next) => {
  */
 router.get('/escalations', async (req, res, next) => {
   try {
-    const data = await supabaseQuery((db) =>
-      db.from('escalations').select('*').eq('resolved', false).order('created_at', { ascending: false }).limit(50)
-    );
+    const data = await supabaseQuery((db) => {
+      let q = db.from('escalations').select('*').eq('resolved', false);
+      if (req.tenantId) q = q.eq('tenant_id', req.tenantId);
+      return q.order('created_at', { ascending: false }).limit(50);
+    });
     res.json({ data: data || [], count: data?.length || 0 });
   } catch (err) {
     next(err);
@@ -231,7 +234,7 @@ router.get('/attribution', requireFeature('advancedAnalytics'), async (req, res,
  */
 router.post('/social-performance', async (req, res, next) => {
   try {
-    const job = await enqueue(QUEUES.SOCIAL, 'optimize-performance', req.body, { priority: PRIORITY.LOW });
+    const job = await enqueue(QUEUES.SOCIAL, 'optimize-performance', { ...req.body, tenantId: req.tenantId }, { priority: PRIORITY.LOW });
     res.json({ success: true, jobId: job?.id });
   } catch (err) {
     next(err);
@@ -244,7 +247,7 @@ router.post('/social-performance', async (req, res, next) => {
  */
 router.post('/email-performance', async (req, res, next) => {
   try {
-    const job = await enqueue(QUEUES.EMAIL, 'analyse-performance', req.body, { priority: PRIORITY.LOW });
+    const job = await enqueue(QUEUES.EMAIL, 'analyse-performance', { ...req.body, tenantId: req.tenantId }, { priority: PRIORITY.LOW });
     res.json({ success: true, jobId: job?.id });
   } catch (err) {
     next(err);

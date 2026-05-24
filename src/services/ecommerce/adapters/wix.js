@@ -36,13 +36,26 @@ class WixAdapter extends EcommerceAdapter {
 
   async getProducts(opts = {}) {
     const { limit = 50 } = opts;
-    const data = await this._request('/products/query', 'POST', {
-      query: {
-        paging: { limit, offset: 0 },
-        filter: JSON.stringify({ visible: true }),
-      },
-    });
-    return (data.products || []).map((p) => this._normalizeProduct(p));
+    const PAGE_SIZE = Math.min(limit, 100); // Wix Stores max page size is 100
+    const allProducts = [];
+    let offset = 0;
+
+    while (allProducts.length < limit) {
+      const pageLimit = Math.min(PAGE_SIZE, limit - allProducts.length);
+      const data = await this._request('/products/query', 'POST', {
+        query: {
+          paging: { limit: pageLimit, offset },
+          filter: JSON.stringify({ visible: true }),
+        },
+      });
+      const page = data.products || [];
+      allProducts.push(...page.map((p) => this._normalizeProduct(p)));
+      // Stop if this was the last page
+      if (page.length < pageLimit) break;
+      offset += page.length;
+    }
+
+    return allProducts;
   }
 
   async getProduct(id) {

@@ -15,7 +15,7 @@ const router = Router();
 
 /**
  * GET /webhooks/whatsapp — Meta verification challenge
- * POST /webhooks/whatsapp — Incoming messages
+ * POST /webhooks/whatsapp — Incoming messages (HMAC-SHA256 verified)
  */
 router.get('/whatsapp', (req, res) => {
   const mode = req.query['hub.mode'];
@@ -28,8 +28,20 @@ router.get('/whatsapp', (req, res) => {
   res.sendStatus(403);
 });
 
-router.post('/whatsapp', async (req, res) => {
-  // Always ack immediately — Meta requires 200 within 20s
+router.post('/whatsapp', express_raw_body, async (req, res) => {
+  // Verify Meta x-hub-signature-256 before processing
+  const appSecret = process.env.META_APP_SECRET || process.env.WHATSAPP_APP_SECRET;
+  const signature = req.headers['x-hub-signature-256'];
+  if (appSecret) {
+    if (!signature || !verifyMetaSignature(req.rawBody, signature, appSecret)) {
+      logger.warn('WhatsApp webhook: invalid or missing signature');
+      return res.status(401).json({ error: 'Invalid signature' });
+    }
+  } else {
+    logger.warn('WhatsApp webhook received without META_APP_SECRET — signature not verified');
+  }
+
+  // Ack immediately after signature check — Meta requires 200 within 20s
   res.sendStatus(200);
 
   try {
@@ -93,15 +105,21 @@ router.post('/whatsapp', async (req, res) => {
  * the appropriate analytics job directly (bypassing eventBus so
  * tenantId is preserved).
  *
- * Required env: SHOPIFY_WEBHOOK_SECRET (can be per-tenant in future)
+ * Required env: SHOPIFY_WEBHOOK_SECRET
  */
 router.post('/shopify', express_raw_body, async (req, res) => {
   const hmac = req.headers['x-shopify-hmac-sha256'];
   const secret = process.env.SHOPIFY_WEBHOOK_SECRET;
 
-  if (secret && hmac && !verifyShopifyHmac(req.rawBody, hmac, secret)) {
-    logger.warn('Shopify webhook: invalid HMAC signature');
-    return res.status(401).json({ error: 'Invalid Shopify webhook signature' });
+  // Require HMAC when a secret is configured; also reject when secret is set
+  // but the header is absent — both indicate a tampered or spoofed request.
+  if (secret) {
+    if (!hmac || !verifyShopifyHmac(req.rawBody, hmac, secret)) {
+      logger.warn('Shopify webhook: invalid or missing HMAC signature');
+      return res.status(401).json({ error: 'Invalid Shopify webhook signature' });
+    }
+  } else {
+    logger.warn('Shopify webhook received without SHOPIFY_WEBHOOK_SECRET — signature not verified');
   }
 
   const topic = req.headers['x-shopify-topic'];
@@ -270,24 +288,29 @@ router.post('/meta', async (req, res) => {
  * Resolves a Supabase tenantId by matching the Shopify shop domain against
  * credentials stored in tenant_credentials (service = 'ecommerce', platform_type = 'shopify').
  *
- * The shop domain from the webhook header (e.g. my-store.myshopify.com) is
- * matched against the storeUrl field stored in the credentials JSONB column.
+ * Uses exact equality on the normalised domain to prevent LIKE wildcard injection.
  */
 async function resolveTenantByShopDomain(shopDomain) {
   if (!shopDomain) return null;
   const supabase = getSupabaseClient();
   if (!supabase) return null;
 
-  // Strip protocol if accidentally present; normalise to lowercase
-  const normalised = shopDomain.toLowerCase().replace(/^https?:\/\//, '');
+  // Strip protocol and trailing slash; lowercase; reject wildcards
+  const normalised = shopDomain.toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '');
 
+  // Validate: shop domains must be valid hostnames (alphanumeric, hyphens, dots)
+  if (!/^[a-z0-9][a-z0-9\-.]+$/.test(normalised)) {
+    logger.warn('resolveTenantByShopDomain: invalid shop domain rejected', { shopDomain });
+    return null;
+  }
+
+  // Exact match on the stored storeUrl (normalised form)
   const { data, error } = await supabase
     .from('tenant_credentials')
     .select('tenant_id')
     .eq('service', 'ecommerce')
     .eq('platform_type', 'shopify')
-    // JSONB containment: credentials->storeUrl must contain the shop domain
-    .filter('credentials->>storeUrl', 'ilike', `%${normalised}%`)
+    .filter('credentials->>storeUrl', 'eq', normalised)
     .maybeSingle();
 
   if (error || !data) return null;
@@ -312,19 +335,32 @@ async function resolveTenantByPhoneNumberId(phoneNumberId) {
   return data.tenant_id;
 }
 
-/** Middleware: capture raw body for Shopify HMAC verification */
+/** Middleware: capture raw body as a proper Buffer for HMAC verification */
 function express_raw_body(req, res, next) {
-  let data = '';
-  req.on('data', (chunk) => { data += chunk; });
-  req.on('end', () => { req.rawBody = data; next(); });
+  const chunks = [];
+  req.on('data', (chunk) => { chunks.push(chunk); });
+  req.on('end', () => { req.rawBody = Buffer.concat(chunks).toString('utf8'); next(); });
 }
 
-/** Constant-time HMAC comparison to prevent timing attacks */
+/** Constant-time HMAC-SHA256 comparison to prevent timing attacks (Shopify) */
 function verifyShopifyHmac(body, hmac, secret) {
   try {
     const hash = crypto.createHmac('sha256', secret).update(body, 'utf8').digest('base64');
     const a = Buffer.from(hash);
     const b = Buffer.from(hmac);
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
+
+/** Constant-time HMAC-SHA256 comparison for Meta/WhatsApp webhooks */
+function verifyMetaSignature(body, signature, secret) {
+  try {
+    const expected = 'sha256=' + crypto.createHmac('sha256', secret).update(body, 'utf8').digest('hex');
+    const a = Buffer.from(expected);
+    const b = Buffer.from(signature);
     if (a.length !== b.length) return false;
     return crypto.timingSafeEqual(a, b);
   } catch {

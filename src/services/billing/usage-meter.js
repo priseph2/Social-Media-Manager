@@ -68,16 +68,24 @@ async function flush() {
   _flushTimer = null;
   if (!_buffer.length) return;
 
-  const rows = _buffer.splice(0, _buffer.length);
   const supabase = getSupabaseClient();
   if (!supabase) return;
 
+  const rows = _buffer.splice(0, _buffer.length);
+
   try {
     const { error } = await supabase.from('usage_records').insert(rows);
-    if (error) logger.warn('Usage meter flush error', { error: error.message, rows: rows.length });
-    else logger.debug(`Usage meter flushed ${rows.length} records`);
+    if (error) {
+      // Restore rows so they are retried on the next flush cycle
+      _buffer.unshift(...rows);
+      logger.warn('Usage meter flush error — rows restored for retry', { error: error.message, rows: rows.length });
+    } else {
+      logger.debug(`Usage meter flushed ${rows.length} records`);
+    }
   } catch (err) {
-    logger.warn('Usage meter flush exception', { error: err.message });
+    // Restore rows so they are retried on the next flush cycle
+    _buffer.unshift(...rows);
+    logger.warn('Usage meter flush exception — rows restored for retry', { error: err.message });
   }
 }
 

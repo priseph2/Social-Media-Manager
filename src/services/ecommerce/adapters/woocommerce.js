@@ -130,7 +130,9 @@ class WooCommerceAdapter extends EcommerceAdapter {
       title: p.name,
       description: p.description,
       status: p.status,
-      price: parseFloat(p.sale_price || p.regular_price || 0),
+      // p.price is the WooCommerce computed effective price (lowest variant price for variable
+      // products). sale_price/regular_price are empty strings on variable parent objects.
+      price: parseFloat(p.price) || parseFloat(p.sale_price) || parseFloat(p.regular_price) || 0,
       currency: 'USD',
       variants: (p.variations || []).map((id) => ({ id: String(id) })),
       tags: (p.tags || []).map((t) => t.name),
