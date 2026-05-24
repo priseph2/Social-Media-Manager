@@ -81,7 +81,14 @@ router.get('/content', async (req, res, next) => {
     if (type) filter.type = type;
     if (platform) filter.platform = platform;
     const docs = await Content.find(filter).sort({ createdAt: -1 }).limit(Number(limit)).lean();
-    const data = docs.map((d) => ({ ...d, id: String(d._id) }));
+    const data = docs.map((d) => ({
+      ...d,
+      id: String(d._id),
+      content_type: d.type,
+      created_at: d.createdAt,
+      scheduled_at: d.scheduledAt || null,
+      status: d.brandReview?.status || 'pending',
+    }));
     res.json({ data, count: data.length });
   } catch (err) {
     next(err);

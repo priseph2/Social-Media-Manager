@@ -5,12 +5,24 @@ import { createClient } from '@/lib/supabase/client';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+interface ContentVariation {
+  text: string;
+  hashtags?: string[];
+  qualityScore?: number;
+  approved?: boolean;
+}
+
 interface ScheduledPost {
   id: string;
   platform: string;
   content_type: string;
-  scheduled_at: string;
+  created_at: string;
+  scheduled_at: string | null;
   status: string;
+  variations?: ContentVariation[];
+  selectedVariation?: number;
+  brandReview?: { status: string; qualityScore?: number; feedback?: string };
+  input?: Record<string, unknown>;
 }
 
 interface Localisation {
@@ -134,9 +146,31 @@ function Spinner() {
 
 // ── Tab: Scheduled ────────────────────────────────────────────────────────────
 
+const STATUS_STYLES: Record<string, string> = {
+  approved: 'bg-green-100 text-green-700',
+  posted: 'bg-green-100 text-green-700',
+  needs_revision: 'bg-amber-100 text-amber-700',
+  rejected: 'bg-red-100 text-red-700',
+  failed: 'bg-red-100 text-red-700',
+  pending: 'bg-slate-100 text-slate-500',
+};
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+      className="text-xs text-indigo-600 hover:text-indigo-800 font-medium shrink-0"
+    >
+      {copied ? 'Copied!' : 'Copy'}
+    </button>
+  );
+}
+
 function ScheduledTab() {
   const [posts, setPosts] = useState<ScheduledPost[]>([]);
   const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     apiFetch<{ data: ScheduledPost[] }>('/api/analytics/content?limit=30')
@@ -161,31 +195,80 @@ function ScheduledTab() {
       <table className="w-full text-sm">
         <thead className="bg-slate-50 border-b border-slate-200">
           <tr>
-            <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Platform</th>
-            <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Type</th>
-            <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Created</th>
-            <th className="text-left px-5 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Status</th>
+            <th className="w-8 px-3 py-3" />
+            <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Platform</th>
+            <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Type</th>
+            <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Created</th>
+            <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Status</th>
+            <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Score</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-100">
-          {posts.map((p, i) => (
-            <tr key={p.id || i} className="hover:bg-slate-50">
-              <td className="px-5 py-3 capitalize text-slate-700">{p.platform || '—'}</td>
-              <td className="px-5 py-3 text-slate-500">{String(p.content_type || '').replace(/_/g, ' ')}</td>
-              <td className="px-5 py-3 text-slate-400 text-xs">
-                {p.scheduled_at ? new Date(p.scheduled_at).toLocaleDateString('en-GB') : '—'}
-              </td>
-              <td className="px-5 py-3">
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                  (p as ScheduledPost & { brandReview?: { status: string } }).brandReview?.status === 'approved' || p.status === 'posted' ? 'bg-green-100 text-green-700' :
-                  p.status === 'failed' ? 'bg-red-100 text-red-700' :
-                  'bg-slate-100 text-slate-600'
-                }`}>
-                  {p.status || 'pending'}
-                </span>
-              </td>
-            </tr>
-          ))}
+        <tbody>
+          {posts.map((p, i) => {
+            const isOpen = expanded[p.id || i];
+            const selected = p.variations?.[p.selectedVariation ?? 0];
+            return (
+              <>
+                <tr
+                  key={p.id || i}
+                  onClick={() => setExpanded((e) => ({ ...e, [p.id || i]: !e[p.id || i] }))}
+                  className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer"
+                >
+                  <td className="px-3 py-3 text-slate-400 text-xs">{isOpen ? '▼' : '▶'}</td>
+                  <td className="px-4 py-3 capitalize text-slate-700 font-medium">{p.platform || '—'}</td>
+                  <td className="px-4 py-3 text-slate-500 capitalize">{String(p.content_type || '').replace(/_/g, ' ') || '—'}</td>
+                  <td className="px-4 py-3 text-slate-400 text-xs">
+                    {p.created_at ? new Date(p.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_STYLES[p.status] || STATUS_STYLES.pending}`}>
+                      {p.status || 'pending'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-xs text-slate-400">
+                    {p.brandReview?.qualityScore != null ? `${p.brandReview.qualityScore}/100` : '—'}
+                  </td>
+                </tr>
+                {isOpen && (
+                  <tr key={`${p.id || i}-detail`} className="bg-slate-50 border-b border-slate-200">
+                    <td colSpan={6} className="px-5 py-4">
+                      {/* Brand review feedback */}
+                      {p.brandReview?.feedback && (
+                        <p className="text-xs text-slate-500 italic mb-3 border-l-2 border-indigo-200 pl-3">
+                          {p.brandReview.feedback}
+                        </p>
+                      )}
+                      {/* All variations */}
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                        {p.variations?.length ?? 0} variation{(p.variations?.length ?? 0) !== 1 ? 's' : ''} generated
+                      </p>
+                      <div className="space-y-3">
+                        {(p.variations || []).map((v, vi) => (
+                          <div
+                            key={vi}
+                            className={`rounded-lg border p-3 ${vi === (p.selectedVariation ?? 0) ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200 bg-white'}`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex-1">
+                                {vi === (p.selectedVariation ?? 0) && (
+                                  <span className="text-xs font-medium text-indigo-600 mb-1 block">★ Selected</span>
+                                )}
+                                <p className="text-sm text-slate-800 whitespace-pre-wrap">{v.text}</p>
+                                {v.hashtags?.length ? (
+                                  <p className="text-xs text-indigo-500 mt-1">{v.hashtags.map((h) => `#${h}`).join(' ')}</p>
+                                ) : null}
+                              </div>
+                              <CopyButton text={v.hashtags?.length ? `${v.text}\n\n${v.hashtags.map((h) => `#${h}`).join(' ')}` : v.text} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </>
+            );
+          })}
         </tbody>
       </table>
     </div>
