@@ -5,6 +5,7 @@ const nextConfig = {
   },
 
   async headers() {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
     return [
       {
         source: '/:path*',
@@ -21,7 +22,7 @@ const nextConfig = {
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: https:",
               "font-src 'self' data:",
-              "connect-src 'self' https://*.supabase.co https://api.paystack.co",
+              `connect-src 'self' ${apiUrl} https://*.supabase.co https://api.paystack.co`,
               "frame-ancestors 'none'",
             ].join('; '),
           },

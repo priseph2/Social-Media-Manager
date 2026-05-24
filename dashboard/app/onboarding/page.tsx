@@ -75,7 +75,7 @@ export default function OnboardingPage() {
         };
         await Promise.all([
           apiRequest('/api/tenants/me/brand-config', s.access_token, { method: 'PUT', body: JSON.stringify(brandConfig) }),
-          apiRequest('/api/tenants/me/onboarding/brand_voice', s.access_token, { method: 'PUT', body: JSON.stringify(voice) }),
+          apiRequest('/api/tenants/me/onboarding/voice', s.access_token, { method: 'PUT', body: JSON.stringify(voice) }),
         ]);
       }
 
@@ -88,7 +88,7 @@ export default function OnboardingPage() {
       if (step === 'integrations') {
         const { data: { session: s } } = await supabase.auth.getSession();
         if (!s) throw new Error('Not authenticated');
-        await apiRequest('/api/tenants/me/onboarding/integrations', s.access_token, { method: 'PUT', body: JSON.stringify({}) });
+        await apiRequest('/api/tenants/me/onboarding/platforms', s.access_token, { method: 'PUT', body: JSON.stringify({}) });
       }
 
       if (step === 'launch') {
