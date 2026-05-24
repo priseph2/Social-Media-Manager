@@ -144,15 +144,33 @@ router.get('/me/connections', async (req, res, next) => {
 });
 
 // PUT /api/tenants/me/onboarding/:step — mark onboarding step complete
+const VALID_ONBOARDING_STEPS = new Set(['company', 'voice', 'audience', 'platforms', 'launch']);
+
 router.put('/me/onboarding/:step', async (req, res, next) => {
   try {
     if (!req.tenantId) return res.status(400).json({ error: 'No tenant context' });
+    const { step } = req.params;
+    if (!VALID_ONBOARDING_STEPS.has(step)) {
+      return res.status(400).json({ error: `Invalid onboarding step: ${step}` });
+    }
     const supabase = getSupabaseClient();
+    // Allowlist known safe onboarding fields per step
+    const STEP_FIELDS = {
+      company: ['name', 'tagline', 'industry', 'market', 'website', 'logoUrl'],
+      voice: ['tone', 'doList', 'dontList', 'vocabulary'],
+      audience: ['primary', 'secondary', 'demographics'],
+      platforms: ['selected'],
+      launch: [],
+    };
+    const allowed = STEP_FIELDS[step] || [];
+    const safeData = allowed.length
+      ? Object.fromEntries(allowed.filter((k) => k in req.body).map((k) => [k, req.body[k]]))
+      : {};
     await supabase.from('onboarding_progress').upsert({
       tenant_id: req.tenantId,
-      step: req.params.step,
+      step,
       completed: true,
-      data: req.body,
+      data: safeData,
       completed_at: new Date().toISOString(),
     }, { onConflict: 'tenant_id,step' });
 

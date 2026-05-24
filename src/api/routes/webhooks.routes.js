@@ -29,16 +29,16 @@ router.get('/whatsapp', (req, res) => {
 });
 
 router.post('/whatsapp', async (req, res) => {
-  // Verify Meta x-hub-signature-256 before processing
+  // Verify Meta x-hub-signature-256 before processing — fail closed if secret not configured
   const appSecret = process.env.META_APP_SECRET || process.env.WHATSAPP_APP_SECRET;
   const signature = req.headers['x-hub-signature-256'];
-  if (appSecret) {
-    if (!signature || !verifyMetaSignature(req.rawBody, signature, appSecret)) {
-      logger.warn('WhatsApp webhook: invalid or missing signature');
-      return res.status(401).json({ error: 'Invalid signature' });
-    }
-  } else {
-    logger.warn('WhatsApp webhook received without META_APP_SECRET — signature not verified');
+  if (!appSecret) {
+    logger.error('WhatsApp webhook: META_APP_SECRET not configured — rejecting unverified request');
+    return res.status(503).json({ error: 'Webhook not configured' });
+  }
+  if (!signature || !verifyMetaSignature(req.rawBody, signature, appSecret)) {
+    logger.warn('WhatsApp webhook: invalid or missing signature');
+    return res.status(401).json({ error: 'Invalid signature' });
   }
 
   // Ack immediately after signature check — Meta requires 200 within 20s
@@ -257,8 +257,22 @@ router.get('/meta', (req, res) => {
 });
 
 router.post('/meta', async (req, res) => {
+  // Verify Meta x-hub-signature-256 — same secret as WhatsApp (they share META_APP_SECRET)
+  const metaSecret = process.env.META_APP_SECRET;
+  const metaSig = req.headers['x-hub-signature-256'];
+  if (!metaSecret) {
+    logger.error('Meta webhook: META_APP_SECRET not configured — rejecting unverified request');
+    return res.status(503).json({ error: 'Webhook not configured' });
+  }
+  if (!metaSig || !verifyMetaSignature(req.rawBody, metaSig, metaSecret)) {
+    logger.warn('Meta webhook: invalid or missing signature');
+    return res.status(401).json({ error: 'Invalid signature' });
+  }
+
+  res.sendStatus(200); // Ack before async processing
+
   const { entry } = req.body;
-  if (!entry?.length) return res.sendStatus(200);
+  if (!entry?.length) return;
 
   for (const e of entry) {
     for (const change of e.changes || []) {
@@ -279,7 +293,6 @@ router.post('/meta', async (req, res) => {
       }
     }
   }
-  res.sendStatus(200);
 });
 
 // ── Helpers ────────────────────────────────────────────────────────────────

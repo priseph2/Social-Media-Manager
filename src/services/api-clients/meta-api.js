@@ -17,7 +17,9 @@ class MetaAPI {
 
     const query = new URLSearchParams({ access_token: this.accessToken });
     let url = `${this.baseUrl}${path}`;
-    const opts = { method, headers: { 'Content-Type': 'application/json' } };
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const opts = { method, headers: { 'Content-Type': 'application/json' }, signal: controller.signal };
 
     if (method === 'GET') {
       if (params) Object.entries(params).forEach(([k, v]) => query.set(k, v));
@@ -27,12 +29,13 @@ class MetaAPI {
       if (params) opts.body = JSON.stringify(params);
     }
 
-    const res = await fetch(url, opts);
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Meta ${method} ${path} → ${res.status}: ${text}`);
+    try {
+      const res = await fetch(url, opts);
+      if (!res.ok) throw new Error(`Meta ${method} ${path} → ${res.status}`);
+      return res.json();
+    } finally {
+      clearTimeout(timeout);
     }
-    return res.json();
   }
 
   /**
@@ -71,7 +74,10 @@ class MetaAPI {
   async replyToComment(commentId, message) {
     if (!this.available) return { success: false, reason: 'Meta not configured' };
     try {
-      const safeId = encodeURIComponent(String(commentId).replace(/[^0-9_]/g, ''));
+      const idStr = String(commentId).trim();
+      // Meta Graph API comment IDs are underscore-separated numeric strings: {postId}_{commentId}
+      if (!/^\d+(_\d+)*$/.test(idStr)) throw new Error(`Invalid Meta comment ID: ${commentId}`);
+      const safeId = encodeURIComponent(idStr);
       const data = await this._request(`/${safeId}/replies`, 'POST', { message });
       logger.info('[Meta] Comment reply sent', { commentId });
       return { success: true, replyId: data?.id };

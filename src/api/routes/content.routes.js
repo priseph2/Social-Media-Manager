@@ -41,7 +41,7 @@ router.post('/review', async (req, res, next) => {
  */
 router.post('/generate', async (req, res, next) => {
   try {
-    const fakeJob = { id: `api-${Date.now()}`, name: 'generate-content', data: req.body };
+    const fakeJob = { id: `api-${Date.now()}`, name: 'generate-content', data: { ...req.body, tenantId: req.tenantId } };
     const result = await contentGenerator.execute(fakeJob);
     res.json(result);
   } catch (err) {

@@ -21,27 +21,30 @@ class BufferAPI {
     const { default: fetch } = await import('node-fetch').catch(() => ({ default: globalThis.fetch }));
 
     let url = `${this.baseUrl}${path}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
     const opts = {
       method,
       headers: { Authorization: `Bearer ${this.accessToken}` },
+      signal: controller.signal,
     };
 
     if (params) {
       if (method === 'GET') {
         url += '?' + new URLSearchParams(params).toString();
       } else {
-        // Buffer v1 uses application/x-www-form-urlencoded for POST
         opts.headers['Content-Type'] = 'application/x-www-form-urlencoded';
         opts.body = new URLSearchParams(params).toString();
       }
     }
 
-    const res = await fetch(url, opts);
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Buffer ${method} ${path} → ${res.status}: ${text}`);
+    try {
+      const res = await fetch(url, opts);
+      if (!res.ok) throw new Error(`Buffer ${method} ${path} → ${res.status}`);
+      return res.json();
+    } finally {
+      clearTimeout(timeout);
     }
-    return res.json();
   }
 
   /**

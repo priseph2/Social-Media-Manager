@@ -23,16 +23,19 @@ class MailchimpAPI {
 
   async _request(path, method = 'GET', body = null) {
     const { default: fetch } = await import('node-fetch').catch(() => ({ default: globalThis.fetch }));
-    const opts = { method, headers: this._headers };
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const opts = { method, headers: this._headers, signal: controller.signal };
     if (body) opts.body = JSON.stringify(body);
 
-    const res = await fetch(`${this.baseUrl}${path}`, opts);
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Mailchimp ${method} ${path} → ${res.status}: ${text}`);
+    try {
+      const res = await fetch(`${this.baseUrl}${path}`, opts);
+      if (!res.ok) throw new Error(`Mailchimp ${method} ${path} → ${res.status}`);
+      if (res.status === 204) return null;
+      return res.json();
+    } finally {
+      clearTimeout(timeout);
     }
-    if (res.status === 204) return null;
-    return res.json();
   }
 
   /**
@@ -62,7 +65,9 @@ class MailchimpAPI {
       };
 
       if (segmentId) {
-        campaignBody.recipients.segment_opts = { saved_segment_id: Number(segmentId) };
+        const segId = parseInt(String(segmentId), 10);
+        if (isNaN(segId)) throw new Error(`Invalid Mailchimp segment ID: ${segmentId}`);
+        campaignBody.recipients.segment_opts = { saved_segment_id: segId };
       }
 
       const created = await this._request('/campaigns', 'POST', campaignBody);
@@ -70,7 +75,7 @@ class MailchimpAPI {
       if (!campaignId) throw new Error('Mailchimp did not return a campaign ID');
 
       // Set the HTML content in a second call
-      await this._request(`/campaigns/${campaignId}/content`, 'PUT', { html: htmlContent });
+      await this._request(`/campaigns/${encodeURIComponent(campaignId)}/content`, 'PUT', { html: htmlContent });
 
       logger.info('[Mailchimp] Campaign created', { campaignId, subject });
       return { success: true, campaignId };

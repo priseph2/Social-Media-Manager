@@ -17,6 +17,9 @@ async function connectMongoDB() {
   try {
     await mongoose.connect(uri, {
       serverSelectionTimeoutMS: 5000,
+      maxPoolSize: 10,
+      maxIdleTimeMS: 60000,
+      waitQueueTimeoutMS: 10000,
     });
     isConnected = true;
     logger.info('MongoDB Atlas connected');

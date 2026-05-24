@@ -33,8 +33,13 @@ class BaseSkill {
     const start = Date.now();
     this.log.info(`Processing job ${job.id}`, { jobName: job.name, jobId: job.id });
 
+    const tenantId = job.data?.tenantId || null;
+    if (!tenantId) {
+      this.log.warn(`Job ${job.id} (${job.name}) has no tenantId — usage will not be metered`, { jobId: job.id });
+    }
+
     // Set tenant context so every Claude call within this job is attributed correctly
-    return tenantStorage.run({ tenantId: job.data?.tenantId || null, skill: this.name }, async () => {
+    return tenantStorage.run({ tenantId, skill: this.name }, async () => {
       try {
         const result = await this.execute(job);
         const durationMs = Date.now() - start;

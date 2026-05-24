@@ -27,16 +27,19 @@ class ShopifyAPI {
     let url = `${this.baseUrl}${path}`;
     if (queryParams) url += '?' + new URLSearchParams(queryParams).toString();
 
-    const opts = { method, headers: this._headers };
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const opts = { method, headers: this._headers, signal: controller.signal };
     if (body) opts.body = JSON.stringify(body);
 
-    const res = await fetch(url, opts);
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Shopify ${method} ${path} → ${res.status}: ${text}`);
+    try {
+      const res = await fetch(url, opts);
+      if (!res.ok) throw new Error(`Shopify ${method} ${path} → ${res.status}`);
+      if (res.status === 204) return null;
+      return res.json();
+    } finally {
+      clearTimeout(timeout);
     }
-    if (res.status === 204) return null;
-    return res.json();
   }
 
   /**
@@ -93,7 +96,13 @@ class ShopifyAPI {
   async updateProduct(productId, updates) {
     if (!this.available) return null;
     try {
-      const safeId = encodeURIComponent(String(productId).replace(/\D/g, ''));
+      const idStr = String(productId).trim();
+      // Accept numeric REST IDs or gid://shopify/Product/{id} GraphQL IDs
+      const numericId = idStr.startsWith('gid://shopify/')
+        ? idStr.split('/').pop()
+        : idStr;
+      if (!/^\d+$/.test(numericId)) throw new Error(`Invalid Shopify product ID: ${productId}`);
+      const safeId = encodeURIComponent(numericId);
       const data = await this._request(`/products/${safeId}.json`, 'PUT', { product: updates });
       logger.info('[Shopify] Product updated', { productId });
       return data?.product ?? null;

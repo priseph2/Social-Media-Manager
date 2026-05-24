@@ -8,27 +8,42 @@ const logger = require('../../../utils/logger');
  * credentials: { siteUrl, consumerKey, consumerSecret }
  * siteUrl: full origin, e.g. https://mystore.com
  */
+const PRIVATE_IP_RE = /^(localhost|127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|::1|fd[0-9a-f]{2}:|169\.254\.)/i;
+
+function validateStoreUrl(siteUrl) {
+  let parsed;
+  try { parsed = new URL(siteUrl); } catch { throw new Error('Invalid WooCommerce siteUrl'); }
+  if (parsed.protocol !== 'https:') throw new Error('WooCommerce siteUrl must use HTTPS');
+  if (PRIVATE_IP_RE.test(parsed.hostname)) throw new Error('WooCommerce siteUrl must not point to a private/internal host');
+  return parsed.origin;
+}
+
 class WooCommerceAdapter extends EcommerceAdapter {
   constructor(credentials) {
     super(credentials);
     const { siteUrl, consumerKey, consumerSecret } = credentials;
-    this.baseUrl = `${siteUrl.replace(/\/$/, '')}/wp-json/wc/v3`;
+    const safeOrigin = validateStoreUrl(siteUrl);
+    this.baseUrl = `${safeOrigin}/wp-json/wc/v3`;
     this.authHeader = 'Basic ' + Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64');
   }
 
   async _request(path, method = 'GET', body = null) {
     const { default: fetch } = await import('node-fetch').catch(() => ({ default: globalThis.fetch }));
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
     const opts = {
       method,
       headers: { Authorization: this.authHeader, 'Content-Type': 'application/json' },
+      signal: controller.signal,
     };
     if (body) opts.body = JSON.stringify(body);
-    const res = await fetch(`${this.baseUrl}${path}`, opts);
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`WooCommerce ${method} ${path} → ${res.status}: ${text}`);
+    try {
+      const res = await fetch(`${this.baseUrl}${path}`, opts);
+      if (!res.ok) throw new Error(`WooCommerce ${method} ${path} → ${res.status}`);
+      return res.json();
+    } finally {
+      clearTimeout(timeout);
     }
-    return res.json();
   }
 
   async getProducts(opts = {}) {

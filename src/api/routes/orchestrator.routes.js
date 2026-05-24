@@ -10,14 +10,39 @@ const { QUEUES, PRIORITY } = require('../../config/constants');
 const router = Router();
 router.use(authenticate);
 
+// ── Field allowlists ────────────────────────────────────────────────────────
+
+function pick(obj, keys) {
+  return Object.fromEntries(keys.filter((k) => k in obj).map((k) => [k, obj[k]]));
+}
+
+const CONTENT_FIELDS = ['type', 'platform', 'theme', 'product', 'audience', 'tone',
+  'campaignGoal', 'audienceSegment', 'offer', 'urgency', 'topic', 'targetKeyword', 'wordCount',
+  'productName', 'brand', 'fragranceNotes', 'priceNGN', 'size', 'targetAudience',
+  'uniqueSellingPoints', 'month', 'year', 'keyEvents', 'productLaunches',
+  'duration', 'contentPillar', 'format', 'concept', 'mood', 'copyOverlay', 'numberOfVariants'];
+
+const INQUIRY_FIELDS = ['customerMessage', 'channel', 'customerName', 'customerHistory',
+  'customerId', 'tidioConversationId'];
+
+const EMAIL_CAMPAIGN_FIELDS = ['campaignGoal', 'audienceSegment', 'product', 'offer', 'urgency'];
+
+const ADAPT_CONTENT_FIELDS = ['originalContent', 'originalPlatform', 'targetPlatforms'];
+
+const SUBJECT_LINE_FIELDS = ['campaignGoal', 'audienceSegment', 'product', 'offer'];
+
+const OPTIMIZE_PRODUCT_FIELDS = ['productId', 'productData'];
+
+const RUN_ANALYTICS_FIELDS = ['period', 'trigger'];
+
 /**
  * POST /api/orchestrator/generate-content
  * Trigger content generation for any content type.
- * Body: { type, platform?, theme?, product?, ... }
  */
 router.post('/generate-content', checkOpsLimit, async (req, res, next) => {
   try {
-    const job = await orchestrator.generateContent(req.body);
+    const data = { ...pick(req.body, CONTENT_FIELDS), tenantId: req.tenantId };
+    const job = await orchestrator.generateContent(data);
     res.json({ success: true, jobId: job?.id, message: 'Content generation queued' });
   } catch (err) {
     next(err);
@@ -27,11 +52,11 @@ router.post('/generate-content', checkOpsLimit, async (req, res, next) => {
 /**
  * POST /api/orchestrator/customer-inquiry
  * Submit a customer inquiry for the Customer Service Agent.
- * Body: { customerMessage, channel, customerName?, customerHistory? }
  */
 router.post('/customer-inquiry', async (req, res, next) => {
   try {
-    const job = await orchestrator.handleCustomerInquiry(req.body);
+    const data = { ...pick(req.body, INQUIRY_FIELDS), tenantId: req.tenantId };
+    const job = await orchestrator.handleCustomerInquiry(data);
     res.json({ success: true, jobId: job?.id, message: 'Inquiry queued for processing' });
   } catch (err) {
     next(err);
@@ -44,7 +69,8 @@ router.post('/customer-inquiry', async (req, res, next) => {
  */
 router.post('/email-campaign', requireFeature('emailCampaigns'), checkOpsLimit, async (req, res, next) => {
   try {
-    const job = await orchestrator.createEmailCampaign(req.body);
+    const data = { ...pick(req.body, EMAIL_CAMPAIGN_FIELDS), tenantId: req.tenantId };
+    const job = await orchestrator.createEmailCampaign(data);
     res.json({ success: true, jobId: job?.id, message: 'Email campaign queued' });
   } catch (err) {
     next(err);
@@ -54,11 +80,11 @@ router.post('/email-campaign', requireFeature('emailCampaigns'), checkOpsLimit, 
 /**
  * POST /api/orchestrator/adapt-content
  * Adapt a piece of content for all social platforms.
- * Body: { originalContent, originalPlatform, targetPlatforms? }
  */
 router.post('/adapt-content', async (req, res, next) => {
   try {
-    const job = await enqueue(QUEUES.SOCIAL, 'adapt-cross-platform', req.body, { priority: PRIORITY.NORMAL });
+    const data = { ...pick(req.body, ADAPT_CONTENT_FIELDS), tenantId: req.tenantId };
+    const job = await enqueue(QUEUES.SOCIAL, 'adapt-cross-platform', data, { priority: PRIORITY.NORMAL });
     res.json({ success: true, jobId: job?.id, message: 'Cross-platform adaptation queued' });
   } catch (err) {
     next(err);
@@ -71,7 +97,8 @@ router.post('/adapt-content', async (req, res, next) => {
  */
 router.post('/generate-subject-lines', async (req, res, next) => {
   try {
-    const job = await enqueue(QUEUES.EMAIL, 'generate-subject-lines', req.body, { priority: PRIORITY.NORMAL });
+    const data = { ...pick(req.body, SUBJECT_LINE_FIELDS), tenantId: req.tenantId };
+    const job = await enqueue(QUEUES.EMAIL, 'generate-subject-lines', data, { priority: PRIORITY.NORMAL });
     res.json({ success: true, jobId: job?.id, message: 'Subject line generation queued' });
   } catch (err) {
     next(err);
@@ -84,7 +111,8 @@ router.post('/generate-subject-lines', async (req, res, next) => {
  */
 router.post('/optimize-product', requireFeature('ecommerceOptimizer'), checkOpsLimit, async (req, res, next) => {
   try {
-    const job = await orchestrator.optimizeProduct(req.body);
+    const data = { ...pick(req.body, OPTIMIZE_PRODUCT_FIELDS), tenantId: req.tenantId };
+    const job = await orchestrator.optimizeProduct(data);
     res.json({ success: true, jobId: job?.id, message: 'Product optimisation queued' });
   } catch (err) {
     next(err);
@@ -97,7 +125,8 @@ router.post('/optimize-product', requireFeature('ecommerceOptimizer'), checkOpsL
  */
 router.post('/run-analytics', async (req, res, next) => {
   try {
-    const job = await orchestrator.runAnalytics(req.body);
+    const data = { ...pick(req.body, RUN_ANALYTICS_FIELDS), tenantId: req.tenantId };
+    const job = await orchestrator.runAnalytics(data);
     res.json({ success: true, jobId: job?.id, message: 'Analytics job queued' });
   } catch (err) {
     next(err);

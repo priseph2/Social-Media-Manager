@@ -170,6 +170,16 @@ router.post('/verify', authenticate, async (req, res) => {
       logger.warn('POST /billing/verify: unknown or missing plan in transaction', { reference, rawPlan });
       return res.status(400).json({ error: 'Could not determine plan from transaction. Contact support.' });
     }
+
+    // Validate the charged amount matches the expected plan price to prevent plan-swap fraud
+    const planConfig = getPlan(plan);
+    const currency = tx.currency?.toUpperCase() || 'NGN';
+    const expectedAmount = currency === 'USD' ? planConfig.priceUSD * 100 : planConfig.priceNGN * 100;
+    if (Math.abs(tx.amount - expectedAmount) > 1) { // 1-unit tolerance for rounding
+      logger.warn('POST /billing/verify: amount mismatch', { reference, plan, txAmount: tx.amount, expectedAmount, currency });
+      return res.status(402).json({ error: 'Payment amount does not match plan price. Contact support.' });
+    }
+
     const subscriptionCode = tx.subscription?.subscription_code;
     const customerCode = tx.customer?.customer_code;
     const authCode = tx.authorization?.authorization_code;
@@ -206,11 +216,26 @@ router.put('/plan', authenticate, async (req, res) => {
   if (!PLANS[plan]) return res.status(400).json({ error: `Unknown plan: ${plan}` });
 
   try {
+    const sub = await getSubscription(req.tenantId);
+    const currentPlan = sub.plan || 'starter';
+
+    // Cannot schedule the same plan you're already on
+    if (plan === currentPlan && !sub.pending_plan) {
+      return res.status(409).json({ error: 'You are already on this plan.' });
+    }
+
+    // Upgrades require an active, paid subscription — cannot upgrade for free via this endpoint
+    const PLAN_RANK = { starter: 0, growth: 1, agency: 2 };
+    const isUpgrade = (PLAN_RANK[plan] || 0) > (PLAN_RANK[currentPlan] || 0);
+    if (isUpgrade && sub.status !== 'active') {
+      return res.status(402).json({ error: 'A paid subscription is required to upgrade. Use the checkout flow.' });
+    }
+
     await schedulePlanChange(req.tenantId, plan);
     await logBillingEvent(req.tenantId, 'plan.change_scheduled', { pendingPlan: plan });
     res.json({ success: true, pendingPlan: plan, message: 'Plan change will take effect at the end of your current billing period.' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Failed to schedule plan change' });
   }
 });
 
@@ -276,8 +301,20 @@ async function handlePaystackEvent(event, data, tenantId) {
   switch (event) {
     case 'charge.success': {
       if (!tenantId) return;
-      const plan = data.metadata?.plan;
-      if (!plan) return;
+      const rawPlan = data.metadata?.plan;
+      const plan = typeof rawPlan === 'string' ? rawPlan.toLowerCase() : null;
+      if (!plan || !PLANS[plan]) {
+        logger.warn('Paystack charge.success: missing or unknown plan in metadata', { tenantId, rawPlan });
+        return;
+      }
+      // Validate charged amount matches configured plan price
+      const planConfig = getPlan(plan);
+      const currency = data.currency?.toUpperCase() || 'NGN';
+      const expectedAmount = currency === 'USD' ? planConfig.priceUSD * 100 : planConfig.priceNGN * 100;
+      if (Math.abs(data.amount - expectedAmount) > 1) {
+        logger.warn('Paystack charge.success: amount mismatch — subscription not activated', { tenantId, plan, amount: data.amount, expectedAmount });
+        return;
+      }
       await upsertSubscription(tenantId, {
         plan,
         status: 'active',

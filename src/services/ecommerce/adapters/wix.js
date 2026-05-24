@@ -8,30 +8,36 @@ const logger = require('../../../utils/logger');
  * credentials: { siteId, accessToken, accountId? }
  * Uses the Wix Headless Store API (query-based pattern).
  */
+const WIX_ID_RE = /^[a-zA-Z0-9_\-]{1,64}$/;
+
 class WixAdapter extends EcommerceAdapter {
   constructor(credentials) {
     super(credentials);
-    this.siteId = credentials.siteId;
-    this.accountId = credentials.accountId;
+    const { siteId, accountId, accessToken } = credentials;
+    if (siteId && !WIX_ID_RE.test(siteId)) throw new Error('Invalid Wix siteId format');
+    if (accountId && !WIX_ID_RE.test(accountId)) throw new Error('Invalid Wix accountId format');
     this.baseUrl = 'https://www.wixapis.com/stores/v1';
     this.headers = {
-      Authorization: credentials.accessToken,
+      Authorization: accessToken,
       'Content-Type': 'application/json',
-      ...(credentials.siteId && { 'wix-site-id': credentials.siteId }),
-      ...(credentials.accountId && { 'wix-account-id': credentials.accountId }),
+      ...(siteId && { 'wix-site-id': siteId }),
+      ...(accountId && { 'wix-account-id': accountId }),
     };
   }
 
   async _request(path, method = 'GET', body = null) {
     const { default: fetch } = await import('node-fetch').catch(() => ({ default: globalThis.fetch }));
-    const opts = { method, headers: this.headers };
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const opts = { method, headers: this.headers, signal: controller.signal };
     if (body) opts.body = JSON.stringify(body);
-    const res = await fetch(`${this.baseUrl}${path}`, opts);
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Wix ${method} ${path} → ${res.status}: ${text}`);
+    try {
+      const res = await fetch(`${this.baseUrl}${path}`, opts);
+      if (!res.ok) throw new Error(`Wix ${method} ${path} → ${res.status}`);
+      return res.json();
+    } finally {
+      clearTimeout(timeout);
     }
-    return res.json();
   }
 
   async getProducts(opts = {}) {

@@ -12,8 +12,9 @@ class BigCommerceAdapter extends EcommerceAdapter {
   constructor(credentials) {
     super(credentials);
     const { storeHash, accessToken } = credentials;
-    this.baseV3 = `https://api.bigcommerce.com/stores/${storeHash}/v3`;
-    this.baseV2 = `https://api.bigcommerce.com/stores/${storeHash}/v2`;
+    if (!storeHash || !/^[a-z0-9]+$/i.test(storeHash)) throw new Error('Invalid BigCommerce storeHash format');
+    this.baseV3 = `https://api.bigcommerce.com/stores/${encodeURIComponent(storeHash)}/v3`;
+    this.baseV2 = `https://api.bigcommerce.com/stores/${encodeURIComponent(storeHash)}/v2`;
     this.headers = {
       'X-Auth-Token': accessToken,
       'Content-Type': 'application/json',
@@ -23,14 +24,17 @@ class BigCommerceAdapter extends EcommerceAdapter {
 
   async _request(url, method = 'GET', body = null) {
     const { default: fetch } = await import('node-fetch').catch(() => ({ default: globalThis.fetch }));
-    const opts = { method, headers: this.headers };
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const opts = { method, headers: this.headers, signal: controller.signal };
     if (body) opts.body = JSON.stringify(body);
-    const res = await fetch(url, opts);
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`BigCommerce ${method} ${url} → ${res.status}: ${text}`);
+    try {
+      const res = await fetch(url, opts);
+      if (!res.ok) throw new Error(`BigCommerce ${method} → ${res.status}`);
+      return res.json();
+    } finally {
+      clearTimeout(timeout);
     }
-    return res.json();
   }
 
   async getProducts(opts = {}) {

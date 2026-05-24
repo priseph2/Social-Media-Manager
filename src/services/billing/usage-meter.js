@@ -22,6 +22,7 @@ const tenantStorage = new AsyncLocalStorage();
 // Write batching: buffer records for up to 5 seconds before flushing
 const _buffer = [];
 let _flushTimer = null;
+let _flushing = false; // Prevents concurrent flush() invocations
 const FLUSH_INTERVAL_MS = 5000;
 const MAX_BUFFER_SIZE = 5000; // Prevent OOM during sustained Supabase outages
 
@@ -71,11 +72,12 @@ function recordUsage(tenantId, model, usage, skill = null) {
 
 async function flush() {
   _flushTimer = null;
-  if (!_buffer.length) return;
+  if (_flushing || !_buffer.length) return;
 
   const supabase = getSupabaseClient();
   if (!supabase) return;
 
+  _flushing = true;
   const rows = _buffer.splice(0, _buffer.length);
 
   try {
@@ -96,6 +98,12 @@ async function flush() {
     if (toRestore.length) _buffer.unshift(...toRestore);
     const dropped = rows.length - toRestore.length;
     logger.warn('Usage meter flush exception — rows restored for retry', { error: err.message, restored: toRestore.length, dropped });
+  } finally {
+    _flushing = false;
+    // Schedule another flush if records accumulated while we were flushing
+    if (_buffer.length && !_flushTimer) {
+      _flushTimer = setTimeout(flush, FLUSH_INTERVAL_MS);
+    }
   }
 }
 

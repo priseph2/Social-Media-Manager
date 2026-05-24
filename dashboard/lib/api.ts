@@ -5,6 +5,7 @@ export async function apiRequest<T = unknown>(
   token: string,
   options: RequestInit = {}
 ): Promise<T> {
+  if (!token) throw new Error('Authentication required — no session token');
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {

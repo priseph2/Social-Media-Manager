@@ -114,7 +114,9 @@ export default function BillingPage() {
 
     // If redirected back from Paystack with a reference, verify the payment (once only)
     const reference = searchParams.get('trxref') || searchParams.get('reference');
-    if (searchParams.get('payment') === 'verify' && reference && !verifyAttempted.current) {
+    // Paystack references are alphanumeric; reject anything that doesn't match to prevent forged verifications
+    const isValidRef = reference && /^[a-zA-Z0-9_\-]{8,100}$/.test(reference);
+    if (searchParams.get('payment') === 'verify' && isValidRef && !verifyAttempted.current) {
       verifyAttempted.current = true;
       verifyPayment(reference);
     }

@@ -20,29 +20,34 @@ router.use(authenticate);
  */
 router.get('/dashboard', async (req, res, next) => {
   try {
+    const tid = req.tenantId;
     const [escalations, recentContent, recentDecisions] = await Promise.all([
-      supabaseQuery((db) =>
-        db.from('escalations').select('id, type, reason, created_at').eq('resolved', false).limit(10)
-      ),
+      supabaseQuery((db) => {
+        let q = db.from('escalations').select('id, type, reason, created_at').eq('resolved', false);
+        if (tid) q = q.eq('tenant_id', tid);
+        return q.limit(10);
+      }),
       isMongoAvailable()
-        ? Content.find({ 'brandReview.status': { $in: ['approved', 'pending'] } })
+        ? Content.find({ 'brandReview.status': { $in: ['approved', 'pending'] }, ...(tid ? { tenantId: tid } : {}) })
             .sort({ createdAt: -1 })
             .limit(5)
             .select('type platform brandReview.status createdAt')
             .lean()
         : [],
       isMongoAvailable()
-        ? Decision.find().sort({ createdAt: -1 }).limit(5).select('skill action escalated createdAt').lean()
+        ? Decision.find(tid ? { tenantId: tid } : {}).sort({ createdAt: -1 }).limit(5).select('skill action escalated createdAt').lean()
         : [],
     ]);
 
-    const scheduledContent = await supabaseQuery((db) =>
-      db.from('content_schedule')
+    const scheduledContent = await supabaseQuery((db) => {
+      let q = db.from('content_schedule')
         .select('platform, content_type, scheduled_at, status')
         .gte('scheduled_at', new Date().toISOString())
         .order('scheduled_at', { ascending: true })
-        .limit(10)
-    );
+        .limit(10);
+      if (tid) q = q.eq('tenant_id', tid);
+      return q;
+    });
 
     res.json({
       timestamp: new Date().toISOString(),
@@ -106,12 +111,17 @@ router.get('/escalations', async (req, res, next) => {
 router.patch('/escalations/:id/resolve', async (req, res, next) => {
   try {
     const { id } = req.params;
+    if (!id || !/^[0-9a-f-]{8,36}$/i.test(id)) {
+      return res.status(400).json({ error: 'Invalid escalation ID' });
+    }
     const { humanNote } = req.body;
-    await supabaseQuery((db) =>
-      db.from('escalations')
+    await supabaseQuery((db) => {
+      let q = db.from('escalations')
         .update({ resolved: true, human_note: humanNote, resolved_at: new Date().toISOString() })
-        .eq('id', id)
-    );
+        .eq('id', id);
+      if (req.tenantId) q = q.eq('tenant_id', req.tenantId);
+      return q;
+    });
     res.json({ success: true, id });
   } catch (err) {
     next(err);
@@ -173,11 +183,15 @@ router.get('/reports', requireFeature('advancedAnalytics'), async (req, res, nex
  */
 router.get('/reports/:period', requireFeature('advancedAnalytics'), async (req, res, next) => {
   try {
+    const { period } = req.params;
+    if (!/^\d{4}-\d{2}$/.test(period)) {
+      return res.status(400).json({ error: 'Invalid period format. Expected YYYY-MM.' });
+    }
     const report = await supabaseQuery((db) =>
       db.from('monthly_reports')
         .select('*')
         .eq('tenant_id', req.tenantId)
-        .eq('period', req.params.period)
+        .eq('period', period)
         .maybeSingle()
     );
     if (!report) return res.status(404).json({ error: 'Report not found' });
@@ -214,7 +228,7 @@ router.get('/attribution', requireFeature('advancedAnalytics'), async (req, res,
     let enriched = topContent;
     if (isMongoAvailable() && topContent.length) {
       const ids = topContent.map((c) => c.contentId).filter(Boolean);
-      const docs = await Content.find({ _id: { $in: ids } })
+      const docs = await Content.find({ _id: { $in: ids }, ...(req.tenantId ? { tenantId: req.tenantId } : {}) })
         .select('_id type platform variations.text postedAt performance')
         .lean();
       const docMap = Object.fromEntries(docs.map((d) => [String(d._id), d]));
