@@ -144,15 +144,18 @@ router.get('/me/connections', async (req, res, next) => {
 });
 
 // PUT /api/tenants/me/onboarding/:step — mark onboarding step complete
-const VALID_ONBOARDING_STEPS = new Set(['company', 'voice', 'audience', 'platforms', 'launch']);
+// Canonical names plus frontend aliases (brand_voice → voice, integrations → platforms)
+const STEP_ALIASES = { brand_voice: 'voice', integrations: 'platforms' };
+const VALID_ONBOARDING_STEPS = new Set(['company', 'voice', 'brand_voice', 'audience', 'platforms', 'integrations', 'launch']);
 
 router.put('/me/onboarding/:step', async (req, res, next) => {
   try {
     if (!req.tenantId) return res.status(400).json({ error: 'No tenant context' });
-    const { step } = req.params;
-    if (!VALID_ONBOARDING_STEPS.has(step)) {
-      return res.status(400).json({ error: `Invalid onboarding step: ${step}` });
+    const rawStep = req.params.step;
+    if (!VALID_ONBOARDING_STEPS.has(rawStep)) {
+      return res.status(400).json({ error: `Invalid onboarding step: ${rawStep}` });
     }
+    const step = STEP_ALIASES[rawStep] || rawStep;
     const supabase = getSupabaseClient();
     // Allowlist known safe onboarding fields per step
     const STEP_FIELDS = {
