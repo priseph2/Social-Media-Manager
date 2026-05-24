@@ -168,8 +168,8 @@ function ScheduledTab() {
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
-          {posts.map((p) => (
-            <tr key={p.id} className="hover:bg-slate-50">
+          {posts.map((p, i) => (
+            <tr key={p.id || i} className="hover:bg-slate-50">
               <td className="px-5 py-3 capitalize text-slate-700">{p.platform || '—'}</td>
               <td className="px-5 py-3 text-slate-500">{String(p.content_type || '').replace(/_/g, ' ')}</td>
               <td className="px-5 py-3 text-slate-400 text-xs">

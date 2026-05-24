@@ -81,7 +81,8 @@ router.get('/content', async (req, res, next) => {
     if (type) filter.type = type;
     if (platform) filter.platform = platform;
     const docs = await Content.find(filter).sort({ createdAt: -1 }).limit(Number(limit)).lean();
-    res.json({ data: docs, count: docs.length });
+    const data = docs.map((d) => ({ ...d, id: String(d._id) }));
+    res.json({ data, count: data.length });
   } catch (err) {
     next(err);
   }
