@@ -8,6 +8,8 @@ const { eventBus, EVENTS } = require('../../services/messaging/event-emitter');
 const { enqueue } = require('../../orchestrator/message-queue');
 const { SKILLS, QUEUES, PRIORITY, MODELS, BRAND } = require('../../config/constants');
 const { getBrandConfig } = require('../../services/brand-config');
+const Content = require('../../models/content.model');
+const { isMongoAvailable } = require('../../services/database/mongodb-client');
 
 function buildSystemPrompt(brandConfig) {
   const name = brandConfig?.identity?.name || 'the brand';
@@ -74,7 +76,7 @@ class BrandGuardian extends BaseSkill {
 
     if (complianceResult.flags.some((f) => f.severity === 'critical')) {
       this.log.error('Critical compliance violation — auto-rejecting', { flags: complianceResult.flags });
-      return this._buildResult({
+      const result = this._buildResult({
         decision: 'rejected',
         qualityScore: 0,
         summary: 'Auto-rejected: critical compliance violation',
@@ -84,12 +86,14 @@ class BrandGuardian extends BaseSkill {
         staticViolations: quickResult.violations,
         complianceFlags: complianceResult.flags,
       }, job);
+      await this._updateContentDocument(job.data.originalJobId, result);
+      return result;
     }
 
     if (platform) {
       const limitCheck = BrandValidator.checkPlatformLimits(content, platform);
       if (!limitCheck.passed) {
-        return this._buildResult({
+        const result = this._buildResult({
           decision: 'needs_revision',
           qualityScore: 60,
           summary: `Content exceeds ${platform} character limit`,
@@ -97,6 +101,8 @@ class BrandGuardian extends BaseSkill {
           issues: limitCheck.violations,
           requiresHumanApproval: false,
         }, job);
+        await this._updateContentDocument(job.data.originalJobId, result);
+        return result;
       }
     }
 
@@ -130,7 +136,24 @@ class BrandGuardian extends BaseSkill {
     const reviewData = extractToolInput(response);
     if (!reviewData) throw new Error('Brand Guardian did not return a structured review');
 
-    return this._buildResult({ ...reviewData, staticViolations: quickResult.violations, complianceFlags: complianceResult.flags }, job);
+    const result = this._buildResult({ ...reviewData, staticViolations: quickResult.violations, complianceFlags: complianceResult.flags }, job);
+    await this._updateContentDocument(job.data.originalJobId, result);
+    return result;
+  }
+
+  async _updateContentDocument(originalJobId, review) {
+    if (!isMongoAvailable() || !originalJobId) return;
+    // Map approved_with_suggestions → approved (Content schema enum only has 4 values)
+    const statusMap = { approved: 'approved', approved_with_suggestions: 'approved', needs_revision: 'needs_revision', rejected: 'rejected' };
+    const status = statusMap[review.decision] || 'needs_revision';
+    try {
+      await Content.findOneAndUpdate(
+        { jobId: String(originalJobId) },
+        { $set: { 'brandReview.status': status, 'brandReview.qualityScore': review.qualityScore, 'brandReview.feedback': review.summary, 'brandReview.reviewedAt': new Date() } }
+      );
+    } catch (err) {
+      this.log.warn('Failed to update content brand review in MongoDB', { error: err });
+    }
   }
 
   _buildResult(reviewData, job) {
