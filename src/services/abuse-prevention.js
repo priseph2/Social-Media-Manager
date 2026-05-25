@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 const { getRedisClient } = require('./database/redis-client');
 const logger = require('../utils/logger');
+const { isEmailBlocklisted } = require('../api/middleware/blocklist-check');
 
 // ── Disposable email domain blocklist ─────────────────────────────────────────
 // Top ~300 known throwaway/temporary email providers.
@@ -202,6 +203,10 @@ async function decrementDomainCounter(email) {
  * Run all three checks in order. Returns { allowed: true } or { allowed: false, reason }.
  */
 async function validateSignup({ email, ip }) {
+  // Admin blocklist (highest priority — overrides all other checks)
+  const blocklistCheck = await isEmailBlocklisted(email);
+  if (blocklistCheck.blocked) return { allowed: false, reason: blocklistCheck.reason };
+
   if (isDisposableEmail(email)) {
     return { allowed: false, reason: 'Please use a real email address — disposable inboxes are not accepted.' };
   }

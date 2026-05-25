@@ -9,6 +9,7 @@ const rateLimit = require('express-rate-limit');
 
 const logger = require('./utils/logger');
 const { errorHandler } = require('./api/middleware/error-handler');
+const { blocklistMiddleware } = require('./api/middleware/blocklist-check');
 
 // Routes
 const authRoutes = require('./api/routes/auth.routes');
@@ -34,6 +35,7 @@ app.use(rateLimit({
   max: 100,
   message: { error: 'Too many requests — please try again later' },
 }));
+app.use(blocklistMiddleware);
 
 // ── Body parsing ─────────────────────────────────────────────────────────────
 // The verify callback captures rawBody for HMAC verification (Paystack, Shopify, WhatsApp).

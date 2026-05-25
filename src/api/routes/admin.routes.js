@@ -6,10 +6,12 @@ const { getSupabaseClient } = require('../../services/database/supabase-client')
 const { isMongoAvailable } = require('../../services/database/mongodb-client');
 const { getRedisClient } = require('../../services/database/redis-client');
 const { getQueue } = require('../../orchestrator/message-queue');
-const { QUEUES } = require('../../config/constants');
+const { QUEUES, EVENTS } = require('../../config/constants');
 const { PLANS } = require('../../config/plans');
 const { VALID_PROVIDERS, invalidateProviderCache } = require('../../services/image-generation');
+const { invalidateBlocklistCache } = require('../middleware/blocklist-check');
 const logger = require('../../utils/logger');
+const { eventBus } = require('../../services/messaging/event-emitter');
 
 const router = Router();
 router.use(requireSuperAdmin);
@@ -745,7 +747,25 @@ router.get('/content/pending', async (req, res, next) => {
 router.post('/content/:id/approve', async (req, res, next) => {
   try {
     const db = getSupabaseClient();
-    await db.from('content_approvals').update({ status: 'approved', reviewed_by: req.adminUser.email, reviewed_at: new Date().toISOString() }).eq('id', req.params.id);
+    // Fetch first to get job_data for re-queue and to confirm it's pending
+    const { data: approval, error: fetchErr } = await db
+      .from('content_approvals').select('id, status, job_data, tenant_id').eq('id', req.params.id).single();
+    if (fetchErr || !approval) return res.status(404).json({ error: 'Approval not found' });
+    if (approval.status !== 'pending') return res.status(409).json({ error: 'Already decided', status: approval.status });
+
+    await db.from('content_approvals').update({
+      status: 'approved', reviewed_by: req.adminUser.email, reviewed_at: new Date().toISOString(),
+    }).eq('id', req.params.id);
+
+    // Re-queue via event bus so the orchestrator routes to social/email queues
+    if (approval.job_data) {
+      eventBus.publish(EVENTS.CONTENT_APPROVED, {
+        ...approval.job_data,
+        approvalId: approval.id,
+        humanApproved: true,
+      });
+    }
+
     await writeAudit(db, req.adminUser.email, 'approve_content', 'content_approval', req.params.id);
     res.json({ success: true });
   } catch (err) { next(err); }
