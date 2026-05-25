@@ -72,11 +72,11 @@ export default function TenantsPage() {
     setFiltered(list);
   }, [search, planFilter, statusFilter, tenants]);
 
-  if (loading) return <div className="p-8 text-sm text-slate-500">Loading…</div>;
-  if (error) return <div className="p-8 text-sm text-red-600">{error}</div>;
+  if (loading) return <div className="p-4 sm:p-8 text-sm text-slate-500">Loading…</div>;
+  if (error) return <div className="p-4 sm:p-8 text-sm text-red-600">{error}</div>;
 
   return (
-    <div className="p-8 max-w-6xl">
+    <div className="p-4 sm:p-8 max-w-6xl">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-bold text-slate-900">Tenants</h1>

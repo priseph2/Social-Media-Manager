@@ -71,7 +71,7 @@ export default function UsagePage() {
   const totalCost = data ? data.totals.costUsd + data.totals.imageCostUsd : 0;
 
   return (
-    <div className="p-8 max-w-6xl">
+    <div className="p-4 sm:p-8 max-w-6xl">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-bold text-slate-900">Usage Analytics</h1>
@@ -97,7 +97,7 @@ export default function UsagePage() {
       ) : !data ? null : (
         <>
           {/* Totals */}
-          <div className="grid grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
             <div className="bg-white rounded-xl border border-slate-200 p-5">
               <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">AI Ops</p>
               <p className="text-3xl font-bold text-slate-900">{data.totals.ops.toLocaleString()}</p>
@@ -124,7 +124,7 @@ export default function UsagePage() {
           {Object.keys(data.bySkill).length > 0 && (
             <div className="bg-white rounded-xl border border-slate-200 p-5 mb-6">
               <h2 className="text-sm font-semibold text-slate-700 mb-3">AI Ops by Skill</h2>
-              <div className="grid grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {Object.entries(data.bySkill).sort((a, b) => b[1].ops - a[1].ops).map(([skill, stats]) => (
                   <div key={skill} className="bg-slate-50 rounded-lg p-3">
                     <p className="text-xs text-slate-500 truncate">{skill}</p>

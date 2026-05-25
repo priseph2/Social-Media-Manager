@@ -107,7 +107,7 @@ export default function IntegrationsPage() {
   }, []);
 
   return (
-    <div className="p-8 max-w-4xl">
+    <div className="p-4 sm:p-8 max-w-4xl">
       <div className="mb-6">
         <h1 className="text-xl font-bold text-slate-900">Global Integrations</h1>
         <p className="text-sm text-slate-500 mt-0.5">

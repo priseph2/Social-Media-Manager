@@ -106,11 +106,11 @@ export default function JobsPage() {
   const totalActive = jobs ? Object.values(jobs.queues).reduce((s, q) => s + (q.active || 0), 0) : 0;
   const totalWaiting = jobs ? Object.values(jobs.queues).reduce((s, q) => s + (q.waiting || 0), 0) : 0;
 
-  if (loading) return <div className="p-8 text-sm text-slate-500">Loading…</div>;
-  if (error) return <div className="p-8 text-sm text-red-600">{error}</div>;
+  if (loading) return <div className="p-4 sm:p-8 text-sm text-slate-500">Loading…</div>;
+  if (error) return <div className="p-4 sm:p-8 text-sm text-red-600">{error}</div>;
 
   return (
-    <div className="p-8 max-w-6xl">
+    <div className="p-4 sm:p-8 max-w-6xl">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-bold text-slate-900">Job Queues</h1>
@@ -133,7 +133,7 @@ export default function JobsPage() {
       ) : (
         <>
           {/* Summary */}
-          <div className="grid grid-cols-3 gap-4 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
             <div className="bg-white rounded-xl border border-slate-200 p-5">
               <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Active Now</p>
               <p className="text-3xl font-bold text-emerald-600">{totalActive}</p>
@@ -149,7 +149,7 @@ export default function JobsPage() {
           </div>
 
           {/* Per-queue cards */}
-          <div className="grid grid-cols-2 gap-4 mb-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
             {Object.entries(jobs.queues).map(([name, stats]) => (
               <div key={name} className={`bg-white rounded-xl border p-5 ${!stats.available ? 'opacity-60' : ''} ${(stats.failed || 0) > 0 ? 'border-red-200' : 'border-slate-200'}`}>
                 <div className="flex items-center justify-between mb-3">
@@ -173,7 +173,7 @@ export default function JobsPage() {
                 {!stats.available ? (
                   <p className="text-xs text-slate-400">{stats.error || 'Unavailable'}</p>
                 ) : (
-                  <div className="grid grid-cols-5 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                     <CountBadge label="Wait" value={stats.waiting ?? 0} color="bg-slate-50 text-slate-600" />
                     <CountBadge label="Active" value={stats.active ?? 0} color="bg-emerald-50 text-emerald-700" />
                     <CountBadge label="Done" value={stats.completed ?? 0} color="bg-indigo-50 text-indigo-700" />

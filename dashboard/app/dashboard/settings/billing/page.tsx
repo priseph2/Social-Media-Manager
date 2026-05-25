@@ -175,7 +175,7 @@ export default function BillingPage() {
     }
   }
 
-  if (loading) return <div className="p-8 text-slate-400 text-sm">Loading billing info…</div>;
+  if (loading) return <div className="p-4 sm:p-8 text-slate-400 text-sm">Loading billing info…</div>;
 
   const currentPlan = billing?.subscription.plan || 'starter';
   const opsUsed = billing?.usage.totalOps || 0;
@@ -184,7 +184,7 @@ export default function BillingPage() {
   const isTrialing = billing?.subscription.status === 'trialing';
 
   return (
-    <div className="p-8 max-w-3xl">
+    <div className="p-4 sm:p-8 max-w-3xl">
       <h1 className="text-xl font-bold text-slate-900 mb-6">Billing & Plan</h1>
 
       {error && <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">{error}</div>}

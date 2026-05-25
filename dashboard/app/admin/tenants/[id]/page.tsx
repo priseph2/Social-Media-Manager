@@ -103,14 +103,14 @@ export default function TenantDetailPage() {
     }
   }
 
-  if (loading) return <div className="p-8 text-sm text-slate-500">Loading…</div>;
-  if (error) return <div className="p-8 text-sm text-red-600">{error}</div>;
+  if (loading) return <div className="p-4 sm:p-8 text-sm text-slate-500">Loading…</div>;
+  if (error) return <div className="p-4 sm:p-8 text-sm text-red-600">{error}</div>;
   if (!data) return null;
 
   const { tenant, subscription, connections, onboarding, usageByPeriod, usageThisMonth, recentEscalations, recentActivity } = data;
 
   return (
-    <div className="p-8 max-w-5xl">
+    <div className="p-4 sm:p-8 max-w-5xl">
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-xs text-slate-400 mb-4">
         <Link href="/admin" className="hover:text-rose-600">Admin</Link>
@@ -184,7 +184,7 @@ export default function TenantDetailPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         <div className="bg-white rounded-xl border border-slate-200 p-4">
           <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">AI Ops (this month)</p>
           <p className="text-2xl font-bold text-slate-900">{usageThisMonth.ops.toLocaleString()}</p>
@@ -250,7 +250,7 @@ export default function TenantDetailPage() {
       )}
 
       {tab === 'Connections' && (
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {!connections.length ? (
             <p className="text-sm text-slate-400">No connected platforms</p>
           ) : (

@@ -55,10 +55,10 @@ export default function EscalationsPage() {
   const open = escalations.filter((e) => !e.resolved);
   const resolved = escalations.filter((e) => e.resolved);
 
-  if (loading) return <div className="p-8 text-sm text-slate-500">Loading…</div>;
+  if (loading) return <div className="p-4 sm:p-8 text-sm text-slate-500">Loading…</div>;
 
   return (
-    <div className="p-8 max-w-3xl">
+    <div className="p-4 sm:p-8 max-w-3xl">
       <h1 className="text-xl font-bold text-slate-900 mb-6">Escalations</h1>
 
       {open.length > 0 && (

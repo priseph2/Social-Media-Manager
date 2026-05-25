@@ -21,16 +21,16 @@ export default async function OverviewPage() {
   const completedTasks = tasks?.filter((t) => t.status === 'completed').length ?? 0;
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <h1 className="text-xl font-bold text-slate-900 mb-6">Overview</h1>
 
-      <div className="grid grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
         <StatCard label="Open Escalations" value={String(openEscalations)} warning={openEscalations > 0} />
         <StatCard label="Tasks Completed" value={String(completedTasks)} />
         <StatCard label="Scheduled Posts" value={String(scheduled?.length ?? 0)} />
       </div>
 
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Section title="Open Escalations">
           {openEscalations === 0 ? (
             <EmptyState text="No open escalations" />

@@ -79,21 +79,21 @@ export default function AdminOverviewPage() {
     load();
   }, []);
 
-  if (loading) return <div className="p-8 text-sm text-slate-500">Loading…</div>;
-  if (error) return <div className="p-8 text-sm text-red-600">{error}</div>;
+  if (loading) return <div className="p-4 sm:p-8 text-sm text-slate-500">Loading…</div>;
+  if (error) return <div className="p-4 sm:p-8 text-sm text-red-600">{error}</div>;
   if (!data) return null;
 
   const month = new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
 
   return (
-    <div className="p-8 max-w-6xl">
+    <div className="p-4 sm:p-8 max-w-6xl">
       <div className="mb-6">
         <h1 className="text-xl font-bold text-slate-900">System Overview</h1>
         <p className="text-sm text-slate-500 mt-0.5">{month}</p>
       </div>
 
       {/* Key stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         <StatCard label="Total Tenants" value={data.tenants.total} sub={`${data.tenants.byStatus.active ?? 0} active`} />
         <StatCard label="Est. MRR" value={`$${data.billing.mrrUsd.toLocaleString()}`} sub="USD" />
         <StatCard label="AI Ops This Month" value={data.usage.opsThisMonth.toLocaleString()} sub={`$${data.usage.costThisMonthUsd.toFixed(2)} cost`} />
@@ -125,7 +125,7 @@ export default function AdminOverviewPage() {
           <h2 className="text-sm font-semibold text-slate-700">Service Configuration</h2>
           <Link href="/admin/services" className="text-xs text-rose-600 hover:text-rose-800">Live health check →</Link>
         </div>
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {Object.entries(data.services).map(([key, configured]) => (
             <div key={key} className="flex items-center gap-2">
               <span className={`w-2 h-2 rounded-full shrink-0 ${configured ? 'bg-emerald-500' : 'bg-slate-300'}`} />

@@ -99,7 +99,7 @@ export default function IntegrationsPage() {
   const isConnected = (id: string) => connections.some((c) => c.platform === id && c.status === 'connected');
 
   return (
-    <div className="p-8 max-w-2xl">
+    <div className="p-4 sm:p-8 max-w-2xl">
       <h1 className="text-xl font-bold text-slate-900 mb-6">Integrations</h1>
       <div className="space-y-3">
         {INTEGRATIONS.map((integration) => {

@@ -68,10 +68,10 @@ export default function BrandSettingsPage() {
     }
   }
 
-  if (loading) return <div className="p-8 text-slate-400 text-sm">Loading…</div>;
+  if (loading) return <div className="p-4 sm:p-8 text-slate-400 text-sm">Loading…</div>;
 
   return (
-    <div className="p-8 max-w-2xl">
+    <div className="p-4 sm:p-8 max-w-2xl">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl font-bold text-slate-900">Brand Settings</h1>
         <button
