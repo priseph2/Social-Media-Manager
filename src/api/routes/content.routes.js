@@ -234,4 +234,23 @@ router.get('/approval-gate', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// GET /api/content/calendar — scheduled content in a date range
+router.get('/calendar', async (req, res, next) => {
+  try {
+    const { from, to } = req.query;
+    const fromDate = from ? String(from) : new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    const toDate   = to   ? String(to)   : new Date(Date.now() + 37 * 86400000).toISOString().slice(0, 10);
+
+    const items = await supabaseQuery((db) =>
+      db.from('content_schedule')
+        .select('id, platform, content_type, scheduled_at, status, content, posted_at')
+        .eq('tenant_id', req.tenantId)
+        .gte('scheduled_at', fromDate + 'T00:00:00Z')
+        .lte('scheduled_at', toDate   + 'T23:59:59Z')
+        .order('scheduled_at', { ascending: true })
+    );
+    res.json({ items: items || [] });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;
