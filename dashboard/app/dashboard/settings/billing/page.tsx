@@ -177,7 +177,8 @@ export default function BillingPage() {
 
   if (loading) return <div className="p-4 sm:p-8 text-slate-400 text-sm">Loading billing info…</div>;
 
-  const currentPlan = billing?.subscription.plan || 'starter';
+  const currentPlan = billing?.subscription.plan || 'free';
+  const isFree = currentPlan === 'free';
   const opsUsed = billing?.usage.totalOps || 0;
   const opsLimit = billing?.usage.opsLimit;
   const opsPercent = opsLimit ? Math.min(100, Math.round((opsUsed / opsLimit) * 100)) : 0;
@@ -190,13 +191,43 @@ export default function BillingPage() {
       {error && <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">{error}</div>}
       {success && <div className="mb-4 bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-700">{success}</div>}
 
+      {/* Free plan upgrade banner */}
+      {isFree && (
+        <div className="mb-6 bg-gradient-to-r from-indigo-50 to-violet-50 border border-indigo-200 rounded-xl p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-semibold text-indigo-900 mb-1">You're on the Free plan</p>
+              <p className="text-xs text-indigo-700">
+                {opsLimit
+                  ? `${opsUsed} of ${opsLimit} ops used this month. Upgrade to unlock 500+ ops, email campaigns, analytics, and more.`
+                  : 'Upgrade to unlock email campaigns, advanced analytics, customer service AI, and more.'}
+              </p>
+            </div>
+            <span className="shrink-0 text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg font-medium">
+              Free
+            </span>
+          </div>
+          {opsLimit && (
+            <div className="mt-3">
+              <div className="w-full bg-indigo-100 rounded-full h-1.5">
+                <div
+                  className={`h-1.5 rounded-full transition-all ${opsPercent > 85 ? 'bg-red-500' : opsPercent > 60 ? 'bg-amber-500' : 'bg-indigo-600'}`}
+                  style={{ width: `${opsPercent}%` }}
+                />
+              </div>
+              <p className="text-xs text-indigo-600 mt-1">{Math.max(0, (opsLimit ?? 0) - opsUsed)} ops remaining this month</p>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Current Plan Card */}
       <div className="bg-white rounded-xl border border-slate-200 p-6 mb-6">
         <div className="flex items-start justify-between">
           <div>
             <div className="flex items-center gap-2 mb-1">
               <h2 className="text-base font-semibold text-slate-900 capitalize">{currentPlan} Plan</h2>
-              <StatusBadge status={billing?.subscription.status || 'active'} />
+              {!isFree && <StatusBadge status={billing?.subscription.status || 'active'} />}
             </div>
             {isTrialing && billing?.subscription.trialEndsAt && (
               <p className="text-sm text-amber-600">
@@ -216,10 +247,16 @@ export default function BillingPage() {
             )}
           </div>
           <div className="text-right">
-            <p className="text-2xl font-bold text-slate-900">
-              ${billing?.planConfig.priceUSD}<span className="text-sm font-normal text-slate-500">/mo</span>
-            </p>
-            <p className="text-xs text-slate-400">₦{billing?.planConfig.priceNGN?.toLocaleString()}/mo</p>
+            {isFree ? (
+              <p className="text-2xl font-bold text-slate-900">Free</p>
+            ) : (
+              <>
+                <p className="text-2xl font-bold text-slate-900">
+                  ${billing?.planConfig.priceUSD}<span className="text-sm font-normal text-slate-500">/mo</span>
+                </p>
+                <p className="text-xs text-slate-400">₦{billing?.planConfig.priceNGN?.toLocaleString()}/mo</p>
+              </>
+            )}
           </div>
         </div>
 
@@ -263,17 +300,17 @@ export default function BillingPage() {
         )}
       </div>
 
-      {/* Plan Selector */}
+      {/* Plan Selector — only show paid plans */}
       <h2 className="text-sm font-semibold text-slate-700 mb-3">
-        {currentPlan === 'starter' ? 'Upgrade your plan' : 'Change plan'}
+        {isFree ? 'Upgrade to unlock your full potential' : 'Change plan'}
       </h2>
       <div className="grid gap-4 mb-8">
-        {plans.map((plan) => {
+        {plans.filter((p) => p.id !== 'free').map((plan) => {
           const isCurrent = plan.id === currentPlan;
           return (
             <div
               key={plan.id}
-              className={`bg-white rounded-xl border p-5 transition-all ${isCurrent ? 'border-indigo-400 ring-1 ring-indigo-200' : 'border-slate-200'}`}
+              className={`bg-white rounded-xl border p-5 transition-all ${isCurrent ? 'border-indigo-400 ring-1 ring-indigo-200' : 'border-slate-200 hover:border-slate-300'}`}
             >
               <div className="flex items-start justify-between">
                 <div>
@@ -319,13 +356,13 @@ export default function BillingPage() {
         })}
       </div>
 
-      {/* Danger zone */}
-      {billing?.subscription.status === 'active' && !billing.subscription.cancelAtPeriodEnd && (
+      {/* Danger zone — only for paying subscribers */}
+      {!isFree && billing?.subscription.status === 'active' && !billing.subscription.cancelAtPeriodEnd && (
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <h2 className="text-sm font-semibold text-slate-700 mb-1">Cancel subscription</h2>
           <p className="text-xs text-slate-500 mb-3">
             Your subscription will remain active until the end of your current billing period.
-            You will be downgraded to the Starter plan after cancellation.
+            You will move to the Free plan after cancellation.
           </p>
           <button
             onClick={handleCancelSubscription}

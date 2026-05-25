@@ -49,7 +49,7 @@ router.post('/setup', async (req, res, next) => {
     // Create tenant
     const { data: tenant, error: tenantErr } = await supabase
       .from('tenants')
-      .insert({ name: String(name).slice(0, 200), slug: sanitisedSlug, plan: 'starter', status: 'onboarding' })
+      .insert({ name: String(name).slice(0, 200), slug: sanitisedSlug, plan: 'free', status: 'onboarding' })
       .select()
       .single();
 

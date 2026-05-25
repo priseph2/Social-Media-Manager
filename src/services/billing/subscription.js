@@ -62,26 +62,29 @@ async function getSubscription(tenantId) {
 }
 
 /**
- * Returns the effective plan id, accounting for trial expiry.
+ * Returns the effective plan id, accounting for trial expiry and cancellation.
  */
 async function getEffectivePlan(tenantId) {
   const sub = await getSubscription(tenantId);
 
-  // Trial: if trial_ends_at is null or has passed, downgrade to starter
+  // Permanent free plan — never expires
+  if (sub.status === 'free') return 'free';
+
+  // Trial: if trial_ends_at is null or has passed, drop to free
   if (sub.status === 'trialing') {
-    if (!sub.trial_ends_at || new Date(sub.trial_ends_at) < new Date()) return 'starter';
+    if (!sub.trial_ends_at || new Date(sub.trial_ends_at) < new Date()) return 'free';
   }
 
-  // Cancelled subscription → starter
-  if (sub.status === 'cancelled') return 'starter';
+  // Cancelled subscription → free
+  if (sub.status === 'cancelled') return 'free';
 
   // Active but billing period ended (7-day grace period for delayed webhooks)
   if (sub.status === 'active' && sub.current_period_end) {
     const gracePeriodMs = 7 * 24 * 60 * 60 * 1000;
-    if (new Date(sub.current_period_end) < new Date(Date.now() - gracePeriodMs)) return 'starter';
+    if (new Date(sub.current_period_end) < new Date(Date.now() - gracePeriodMs)) return 'free';
   }
 
-  return sub.plan || 'starter';
+  return sub.plan || 'free';
 }
 
 /**
@@ -181,20 +184,14 @@ async function logBillingEvent(tenantId, eventType, payload = {}) {
 // ── Privates ────────────────────────────────────────────────────────────────
 
 function _defaultSubscription() {
-  return {
-    plan: 'starter',
-    status: 'trialing',
-    trial_ends_at: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
-  };
+  return { plan: 'free', status: 'free' };
 }
 
 async function _ensureSubscription(tenantId, supabase) {
-  const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
   await supabase.from('subscriptions').insert({
     tenant_id: tenantId,
-    plan: 'growth',
-    status: 'trialing',
-    trial_ends_at: trialEndsAt,
+    plan: 'free',
+    status: 'free',
   }).onConflict('tenant_id').ignore();
 
   const { data } = await supabase

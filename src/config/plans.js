@@ -7,6 +7,34 @@
  * (Subscriptions → Plans). Set them via env vars.
  */
 const PLANS = {
+  free: {
+    id: 'free',
+    name: 'Free',
+    priceUSD: 0,
+    priceNGN: 0,
+    paystackPlanCode: null, // no payment required
+    limits: {
+      maxBrands: 1,
+      monthlyAiOps: 30,
+      monthlyImageGenerations: 0,
+    },
+    features: {
+      socialScheduling: true,
+      brandGuardian: true,
+      customerService: false,
+      basicAnalytics: false,
+      emailCampaigns: false,
+      ecommerceOptimizer: false,
+      advancedAnalytics: false,
+      ga4: false,
+      forecasting: false,
+      contentCalendar: true,
+      whiteLabel: false,
+      customReporting: false,
+      prioritySupport: false,
+    },
+  },
+
   starter: {
     id: 'starter',
     name: 'Starter',

@@ -53,11 +53,12 @@ module.exports = {
 
   // ── Per-tenant hourly AI ops rate limits ───────────────────────────────────
   RATE_LIMITS: {
+    free: 5,       // 30/month; 5/hr prevents burning the entire budget in one session
     starter: 50,
     growth: 200,
     agency: 1000,
     trial: 20,
-    default: 30,
+    default: 5,
   },
 
   // ── Social platforms ───────────────────────────────────────────────────────
