@@ -199,6 +199,7 @@ router.patch('/tenants/:id', async (req, res, next) => {
     if (image_provider) invalidateProviderCache(id);
 
     logger.info(`Admin updated tenant ${id}`, { updates: tenantUpdates, adminEmail: req.adminUser.email });
+    await writeAudit(db, req.adminUser.email, 'update_tenant', 'tenant', id, tenantUpdates);
     res.json({ success: true, id });
   } catch (err) { next(err); }
 });
@@ -464,6 +465,7 @@ router.patch('/users/:id', async (req, res, next) => {
     if (error) throw error;
 
     logger.info(`Admin updated user ${id}`, { role, ban, adminEmail: req.adminUser.email });
+    await writeAudit(db, req.adminUser.email, ban !== undefined ? (ban ? 'ban_user' : 'unban_user') : (role ? 'grant_admin' : 'revoke_admin'), 'user', id, { role, ban });
     res.json({ success: true });
   } catch (err) { next(err); }
 });
@@ -850,6 +852,7 @@ router.post('/security/blocklist', async (req, res, next) => {
     if (error?.code === '23505') return res.status(409).json({ error: 'Already in blocklist' });
     if (error) throw error;
     await writeAudit(db, req.adminUser.email, 'add_blocklist', 'ip_blocklist', data.id, { value: value.trim(), type });
+    invalidateBlocklistCache();
     res.json({ entry: data });
   } catch (err) { next(err); }
 });
@@ -859,6 +862,7 @@ router.delete('/security/blocklist/:id', async (req, res, next) => {
     const db = getSupabaseClient();
     await db.from('ip_blocklist').delete().eq('id', req.params.id);
     await writeAudit(db, req.adminUser.email, 'remove_blocklist', 'ip_blocklist', req.params.id);
+    invalidateBlocklistCache();
     res.json({ success: true });
   } catch (err) { next(err); }
 });
