@@ -10,6 +10,7 @@ const { QUEUES, EVENTS } = require('../../config/constants');
 const { PLANS } = require('../../config/plans');
 const { VALID_PROVIDERS, invalidateProviderCache } = require('../../services/image-generation');
 const { invalidateBlocklistCache } = require('../middleware/blocklist-check');
+const { invalidateCache: invalidateSubscriptionCache } = require('../../services/billing/subscription');
 const logger = require('../../utils/logger');
 const { eventBus } = require('../../services/messaging/event-emitter');
 
@@ -177,7 +178,7 @@ router.patch('/tenants/:id', async (req, res, next) => {
     const db = getSupabaseClient();
 
     const tenantUpdates = { updated_at: new Date().toISOString() };
-    if (plan && ['starter', 'growth', 'agency'].includes(plan)) tenantUpdates.plan = plan;
+    if (plan && ['free', 'starter', 'growth', 'agency'].includes(plan)) tenantUpdates.plan = plan;
     if (status && ['active', 'suspended', 'onboarding'].includes(status)) tenantUpdates.status = status;
     if (image_provider && VALID_PROVIDERS.includes(image_provider)) {
       tenantUpdates.image_provider = image_provider;
@@ -190,10 +191,20 @@ router.patch('/tenants/:id', async (req, res, next) => {
     await db.from('tenants').update(tenantUpdates).eq('id', id);
 
     if (plan) {
+      // Admin override: set both plan and status so getEffectivePlan() picks it up immediately.
+      // free → status 'free'; paid → status 'active' (grants access regardless of billing state).
+      const subStatus = plan === 'free' ? 'free' : 'active';
       await db.from('subscriptions').upsert(
-        { tenant_id: id, plan, updated_at: new Date().toISOString() },
+        {
+          tenant_id: id,
+          plan,
+          status: subStatus,
+          cancel_at_period_end: false,
+          updated_at: new Date().toISOString(),
+        },
         { onConflict: 'tenant_id' }
       );
+      invalidateSubscriptionCache(id);
     }
 
     if (image_provider) invalidateProviderCache(id);

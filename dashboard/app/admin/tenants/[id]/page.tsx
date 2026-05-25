@@ -187,6 +187,7 @@ export default function TenantDetailPage() {
               onChange={(e) => setEditPlan(e.target.value)}
               className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-200"
             >
+              <option value="free">Free</option>
               <option value="starter">Starter ($49)</option>
               <option value="growth">Growth ($149)</option>
               <option value="agency">Agency ($399)</option>
