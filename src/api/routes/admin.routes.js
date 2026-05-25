@@ -268,7 +268,10 @@ router.post('/jobs/:queue/clean', async (req, res, next) => {
     const queue = getQueue(queueName);
     if (!queue) return res.status(503).json({ error: 'Queue unavailable' });
     const count = await queue.clean(0, 100, 'failed');
+    const cleaned = Array.isArray(count) ? count.length : (count || 0);
     logger.info(`Admin cleaned failed jobs from ${queueName}`, { count, adminEmail: req.adminUser.email });
+    const db = getSupabaseClient();
+    await writeAudit(db, req.adminUser.email, 'clean_queue', 'job_queue', queueName, { cleaned });
     res.json({ success: true, cleaned: count, queue: queueName });
   } catch (err) { next(err); }
 });
@@ -495,12 +498,30 @@ router.put('/config/:key', async (req, res, next) => {
     if (!ALLOWED_CONFIG_KEYS.has(key)) return res.status(400).json({ error: `Unknown config key: ${key}` });
     if (value === undefined) return res.status(400).json({ error: 'value required' });
 
+    // Type + range validation per key
+    const CONFIG_VALIDATORS = {
+      rate_limit_free:             (v) => Number.isInteger(v) && v >= 0 && v <= 100000,
+      rate_limit_starter:          (v) => Number.isInteger(v) && v >= 0 && v <= 100000,
+      rate_limit_growth:           (v) => Number.isInteger(v) && v >= 0 && v <= 100000,
+      rate_limit_agency:           (v) => Number.isInteger(v) && v >= 0 && v <= 100000,
+      brand_min_quality_score:     (v) => Number.isInteger(v) && v >= 0 && v <= 100,
+      brand_auto_approve_threshold:(v) => Number.isInteger(v) && v >= 0 && v <= 100,
+      brand_high_risk_threshold:   (v) => Number.isInteger(v) && v >= 0 && v <= 100,
+      maintenance_mode:            (v) => typeof v === 'boolean',
+      maintenance_message:         (v) => typeof v === 'string' && v.length <= 500,
+    };
+    const validator = CONFIG_VALIDATORS[key];
+    if (validator && !validator(value)) {
+      return res.status(400).json({ error: `Invalid value for "${key}". Check type and allowed range.` });
+    }
+
     const db = getSupabaseClient();
     await db.from('global_config').upsert(
       { key, value, updated_at: new Date().toISOString(), updated_by: req.adminUser.email },
       { onConflict: 'key' }
     );
     logger.info('Admin updated global config', { key, adminEmail: req.adminUser.email });
+    await writeAudit(db, req.adminUser.email, 'update_config', 'global_config', key, { value });
     res.json({ success: true });
   } catch (err) { next(err); }
 });
