@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { LogoutButton } from '@/components/logout-button';
 import { SidebarNav } from '@/components/sidebar-nav';
 import { AppShell } from '@/components/app-shell';
+import { NotificationBell } from '@/components/notification-bell';
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
@@ -22,8 +23,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   const sidebar = (
     <>
-      <div className="px-5 py-5 border-b border-slate-200 hidden lg:block">
+      <div className="px-5 py-5 border-b border-slate-200 hidden lg:flex items-center justify-between">
         <span className="font-bold text-slate-900 text-sm">AI Social Manager</span>
+        <NotificationBell />
       </div>
       <SidebarNav pendingApprovals={pendingApprovals} />
       <div className="px-4 py-4 border-t border-slate-200">
