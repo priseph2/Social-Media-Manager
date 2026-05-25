@@ -109,6 +109,9 @@ router.post('/checkout', authenticate, async (req, res) => {
   }
 
   const { plan, currency = 'NGN' } = req.body;
+  if (!plan || !PLANS[plan]) {
+    return res.status(400).json({ error: `Unknown plan: ${plan}` });
+  }
   const planConfig = getPlan(plan);
   if (!planConfig?.paystackPlanCode) {
     return res.status(400).json({ error: `Plan "${plan}" is not available for purchase` });

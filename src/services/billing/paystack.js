@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 const logger = require('../../utils/logger');
 
-const BASE_URL = 'https://api.paystack.co';
+const BASE_URL = process.env.PAYSTACK_BASE_URL || 'https://api.paystack.co';
 
 /**
  * Paystack API client.
