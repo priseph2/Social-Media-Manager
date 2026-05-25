@@ -413,4 +413,152 @@ router.get('/escalations', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ── Users ─────────────────────────────────────────────────────────────────────
+
+router.get('/users', async (req, res, next) => {
+  try {
+    const db = getSupabaseClient();
+    const { data: { users }, error } = await db.auth.admin.listUsers({ perPage: 200 });
+    if (error) throw error;
+
+    const tenants = (await db.from('tenants').select('id, name, plan, status')).data || [];
+    const tenantMap = Object.fromEntries(tenants.map((t) => [t.id, t]));
+
+    const result = users.map((u) => ({
+      id: u.id,
+      email: u.email,
+      role: u.app_metadata?.role || null,
+      tenantId: u.app_metadata?.tenant_id || null,
+      tenant: u.app_metadata?.tenant_id ? (tenantMap[u.app_metadata.tenant_id] || null) : null,
+      createdAt: u.created_at,
+      lastSignInAt: u.last_sign_in_at,
+      emailConfirmed: !!u.email_confirmed_at,
+      isBanned: u.banned_until ? new Date(u.banned_until) > new Date() : false,
+    }));
+
+    res.json({ users: result, total: result.length });
+  } catch (err) { next(err); }
+});
+
+router.patch('/users/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { role, ban } = req.body;
+    const db = getSupabaseClient();
+
+    const { data: { user: current } } = await db.auth.admin.getUserById(id);
+    if (!current) return res.status(404).json({ error: 'User not found' });
+
+    const updates = {};
+    if (role !== undefined) {
+      updates.app_metadata = { ...(current.app_metadata || {}), role: role || null };
+    }
+    if (ban === true)  updates.ban_duration = '876600h';
+    if (ban === false) updates.ban_duration = 'none';
+
+    if (!Object.keys(updates).length) return res.status(400).json({ error: 'No valid fields to update' });
+
+    const { error } = await db.auth.admin.updateUserById(id, updates);
+    if (error) throw error;
+
+    logger.info(`Admin updated user ${id}`, { role, ban, adminEmail: req.adminUser.email });
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// ── Global Config ─────────────────────────────────────────────────────────────
+
+const ALLOWED_CONFIG_KEYS = new Set([
+  'rate_limit_free', 'rate_limit_starter', 'rate_limit_growth', 'rate_limit_agency',
+  'brand_min_quality_score', 'brand_auto_approve_threshold', 'brand_high_risk_threshold',
+  'maintenance_mode', 'maintenance_message',
+]);
+
+router.get('/config', async (req, res, next) => {
+  try {
+    const db = getSupabaseClient();
+    const { data } = await db.from('global_config').select('key, value, updated_at, updated_by');
+    const config = Object.fromEntries((data || []).map((r) => [r.key, r]));
+    const { RATE_LIMITS, BRAND, MODELS } = require('../../config/constants');
+    res.json({ config, defaults: { rateLimits: RATE_LIMITS, brand: BRAND, models: MODELS } });
+  } catch (err) { next(err); }
+});
+
+router.put('/config/:key', async (req, res, next) => {
+  try {
+    const { key } = req.params;
+    const { value } = req.body;
+    if (!ALLOWED_CONFIG_KEYS.has(key)) return res.status(400).json({ error: `Unknown config key: ${key}` });
+    if (value === undefined) return res.status(400).json({ error: 'value required' });
+
+    const db = getSupabaseClient();
+    await db.from('global_config').upsert(
+      { key, value, updated_at: new Date().toISOString(), updated_by: req.adminUser.email },
+      { onConflict: 'key' }
+    );
+    logger.info('Admin updated global config', { key, adminEmail: req.adminUser.email });
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// ── Billing Summary ───────────────────────────────────────────────────────────
+
+router.get('/billing/summary', async (req, res, next) => {
+  try {
+    const db = getSupabaseClient();
+    const PLAN_PRICES = { free: 0, starter: 49, growth: 149, agency: 399 };
+
+    const [subsRes, eventsRes, tenantsRes] = await Promise.all([
+      db.from('subscriptions').select('plan, status, tenant_id, current_period_end, updated_at'),
+      db.from('billing_events').select('event_type, payload, created_at, tenant_id').order('created_at', { ascending: false }).limit(30),
+      db.from('tenants').select('id, name'),
+    ]);
+
+    const subs = subsRes.data || [];
+    const tenantMap = Object.fromEntries((tenantsRes.data || []).map((t) => [t.id, t.name]));
+    const activeSubs = subs.filter((s) => s.status === 'active');
+    const mrrUsd = activeSubs.reduce((sum, s) => sum + (PLAN_PRICES[s.plan] || 0), 0);
+
+    const byPlan = {};
+    for (const plan of ['free', 'starter', 'growth', 'agency']) {
+      const planSubs = subs.filter((s) => s.plan === plan);
+      const active = planSubs.filter((s) => s.status === 'active').length;
+      byPlan[plan] = {
+        total: planSubs.length,
+        active,
+        cancelled: planSubs.filter((s) => s.status === 'cancelled').length,
+        trialing: planSubs.filter((s) => s.status === 'trialing').length,
+        revenue: active * (PLAN_PRICES[plan] || 0),
+        priceUsd: PLAN_PRICES[plan] || 0,
+      };
+    }
+
+    res.json({
+      mrrUsd,
+      arrUsd: mrrUsd * 12,
+      totalSubscriptions: subs.length,
+      activeSubscriptions: activeSubs.length,
+      byPlan,
+      recentEvents: (eventsRes.data || []).map((e) => ({ ...e, tenantName: tenantMap[e.tenant_id] || '—' })),
+    });
+  } catch (err) { next(err); }
+});
+
+// ── Overview (enhanced with failed-job count) ─────────────────────────────────
+
+router.get('/overview/jobs-count', async (req, res, next) => {
+  try {
+    const redis = getRedisClient();
+    if (!redis) return res.json({ failedJobs: 0 });
+    const queueNames = Object.values(QUEUES);
+    let failed = 0;
+    await Promise.all(queueNames.map(async (name) => {
+      const queue = getQueue(name);
+      if (!queue) return;
+      try { const counts = await queue.getJobCounts('failed'); failed += counts.failed || 0; } catch {}
+    }));
+    res.json({ failedJobs: failed });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;
