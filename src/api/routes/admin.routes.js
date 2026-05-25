@@ -561,4 +561,286 @@ router.get('/overview/jobs-count', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ── Audit Log ─────────────────────────────────────────────────────────────────
+
+async function writeAudit(db, adminEmail, action, entityType, entityId, metadata = {}) {
+  try {
+    await db.from('admin_audit_log').insert({ admin_email: adminEmail, action, entity_type: entityType, entity_id: String(entityId || ''), metadata });
+  } catch (_) { /* non-blocking */ }
+}
+
+router.get('/audit', async (req, res, next) => {
+  try {
+    const db = getSupabaseClient();
+    const limit = Math.min(parseInt(req.query.limit || '50'), 200);
+    const offset = parseInt(req.query.offset || '0');
+    let q = db.from('admin_audit_log').select('*', { count: 'exact' })
+      .order('created_at', { ascending: false }).range(offset, offset + limit - 1);
+    if (req.query.entity_type) q = q.eq('entity_type', req.query.entity_type);
+    if (req.query.action) q = q.ilike('action', `%${req.query.action}%`);
+    const { data, count, error } = await q;
+    if (error) throw error;
+    res.json({ entries: data || [], total: count || 0 });
+  } catch (err) { next(err); }
+});
+
+// ── Metrics ────────────────────────────────────────────────────────────────────
+
+router.get('/metrics/realtime', async (req, res, next) => {
+  try {
+    const db = getSupabaseClient();
+    const now = new Date();
+    const oneHourAgo  = new Date(now - 3600000).toISOString();
+    const oneDayAgo   = new Date(now - 86400000).toISOString();
+    const period      = now.toISOString().slice(0, 7);
+
+    const [recentRes, failedRes, activeRes, costRes, newRes] = await Promise.all([
+      db.from('task_log').select('id', { count: 'exact', head: true }).gte('created_at', oneHourAgo),
+      db.from('task_log').select('id', { count: 'exact', head: true }).eq('status', 'failed').gte('created_at', oneHourAgo),
+      db.from('task_log').select('tenant_id').gte('created_at', oneDayAgo),
+      db.from('usage_records').select('cost_usd').eq('billing_period', period),
+      db.from('tenants').select('id', { count: 'exact', head: true }).gte('created_at', oneDayAgo),
+    ]);
+
+    res.json({
+      opsLastHour:       recentRes.count  || 0,
+      failedLastHour:    failedRes.count  || 0,
+      activeTenantsToday: new Set((activeRes.data || []).map((r) => r.tenant_id)).size,
+      costThisMonthUsd:  parseFloat(((costRes.data || []).reduce((s, r) => s + (r.cost_usd || 0), 0)).toFixed(4)),
+      newTenantsToday:   newRes.count     || 0,
+    });
+  } catch (err) { next(err); }
+});
+
+router.get('/metrics/heatmap', async (req, res, next) => {
+  try {
+    const db = getSupabaseClient();
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
+    const { data } = await db.from('task_log').select('created_at').gte('created_at', thirtyDaysAgo);
+    const byDay = {};
+    for (const row of (data || [])) {
+      const d = row.created_at.slice(0, 10);
+      byDay[d] = (byDay[d] || 0) + 1;
+    }
+    const heatmap = [];
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+      heatmap.push({ date: d, count: byDay[d] || 0 });
+    }
+    res.json({ heatmap });
+  } catch (err) { next(err); }
+});
+
+// ── Tenant Notes ────────────────────────────────────────────────────────────────
+
+router.get('/tenants/:id/notes', async (req, res, next) => {
+  try {
+    const db = getSupabaseClient();
+    const { data } = await db.from('tenant_notes').select('*').eq('tenant_id', req.params.id).order('created_at', { ascending: false });
+    res.json({ notes: data || [] });
+  } catch (err) { next(err); }
+});
+
+router.post('/tenants/:id/notes', async (req, res, next) => {
+  try {
+    const { note } = req.body;
+    if (!note?.trim()) return res.status(400).json({ error: 'Note text required' });
+    const db = getSupabaseClient();
+    const { data, error } = await db.from('tenant_notes').insert({ tenant_id: req.params.id, note: note.trim(), created_by: req.adminUser.email }).select().single();
+    if (error) throw error;
+    await writeAudit(db, req.adminUser.email, 'add_note', 'tenant', req.params.id, { preview: note.trim().slice(0, 80) });
+    res.json({ note: data });
+  } catch (err) { next(err); }
+});
+
+router.delete('/tenants/:id/notes/:noteId', async (req, res, next) => {
+  try {
+    const db = getSupabaseClient();
+    await db.from('tenant_notes').delete().eq('id', req.params.noteId).eq('tenant_id', req.params.id);
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// ── Impersonate Tenant ─────────────────────────────────────────────────────────
+
+router.post('/tenants/:id/impersonate', async (req, res, next) => {
+  try {
+    const db = getSupabaseClient();
+    const { data: { users } } = await db.auth.admin.listUsers({ perPage: 500 });
+    const tenantUser = users.find((u) => u.app_metadata?.tenant_id === req.params.id);
+    if (!tenantUser) return res.status(404).json({ error: 'No user found for this tenant' });
+    const { data, error } = await db.auth.admin.generateLink({
+      type: 'magiclink',
+      email: tenantUser.email,
+      options: { redirectTo: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001'}/dashboard` },
+    });
+    if (error) throw error;
+    await writeAudit(db, req.adminUser.email, 'impersonate', 'tenant', req.params.id, { targetEmail: tenantUser.email });
+    logger.warn(`Admin ${req.adminUser.email} generated impersonation link for tenant ${req.params.id}`);
+    res.json({ link: data?.properties?.action_link || data?.action_link || null });
+  } catch (err) { next(err); }
+});
+
+// ── Billing: Churn & Dunning ───────────────────────────────────────────────────
+
+router.get('/billing/churn', async (req, res, next) => {
+  try {
+    const db = getSupabaseClient();
+    const [cancelledRes, createdRes] = await Promise.all([
+      db.from('billing_events').select('created_at').eq('event_type', 'subscription_cancelled').order('created_at', { ascending: false }).limit(500),
+      db.from('billing_events').select('created_at').eq('event_type', 'subscription_created').order('created_at', { ascending: false }).limit(500),
+    ]);
+    const byMonth = {};
+    for (const e of (cancelledRes.data || [])) {
+      const m = e.created_at.slice(0, 7);
+      if (!byMonth[m]) byMonth[m] = { lost: 0, gained: 0 };
+      byMonth[m].lost++;
+    }
+    for (const e of (createdRes.data || [])) {
+      const m = e.created_at.slice(0, 7);
+      if (!byMonth[m]) byMonth[m] = { lost: 0, gained: 0 };
+      byMonth[m].gained++;
+    }
+    const months = Object.entries(byMonth).sort(([a], [b]) => b.localeCompare(a)).slice(0, 12).map(([month, v]) => ({ month, ...v, net: v.gained - v.lost }));
+    res.json({ months });
+  } catch (err) { next(err); }
+});
+
+router.get('/billing/dunning', async (req, res, next) => {
+  try {
+    const db = getSupabaseClient();
+    const [failedRes, tenantsRes] = await Promise.all([
+      db.from('billing_events').select('tenant_id, payload, created_at').eq('event_type', 'payment_failed').order('created_at', { ascending: false }),
+      db.from('tenants').select('id, name, plan, status'),
+    ]);
+    const tenantMap = Object.fromEntries((tenantsRes.data || []).map((t) => [t.id, t]));
+    const byTenant = {};
+    for (const e of (failedRes.data || [])) {
+      if (!byTenant[e.tenant_id]) byTenant[e.tenant_id] = { count: 0, lastFailedAt: e.created_at, amount: 0 };
+      byTenant[e.tenant_id].count++;
+      if (e.payload?.amount) byTenant[e.tenant_id].amount = e.payload.amount;
+    }
+    const dunning = Object.entries(byTenant).map(([tid, v]) => ({
+      tenantId: tid, tenantName: tenantMap[tid]?.name || '—',
+      plan: tenantMap[tid]?.plan || '—', status: tenantMap[tid]?.status || '—', ...v,
+    })).sort((a, b) => b.count - a.count);
+    res.json({ dunning });
+  } catch (err) { next(err); }
+});
+
+// ── Content Approvals ──────────────────────────────────────────────────────────
+
+router.get('/content/pending', async (req, res, next) => {
+  try {
+    const db = getSupabaseClient();
+    const [approvalsRes, tenantsRes] = await Promise.all([
+      db.from('content_approvals').select('*').eq('status', 'pending').order('created_at', { ascending: false }),
+      db.from('tenants').select('id, name'),
+    ]);
+    const tenantMap = Object.fromEntries((tenantsRes.data || []).map((t) => [t.id, t.name]));
+    res.json({ pending: (approvalsRes.data || []).map((a) => ({ ...a, tenantName: tenantMap[a.tenant_id] || '—' })) });
+  } catch (err) { next(err); }
+});
+
+router.post('/content/:id/approve', async (req, res, next) => {
+  try {
+    const db = getSupabaseClient();
+    await db.from('content_approvals').update({ status: 'approved', reviewed_by: req.adminUser.email, reviewed_at: new Date().toISOString() }).eq('id', req.params.id);
+    await writeAudit(db, req.adminUser.email, 'approve_content', 'content_approval', req.params.id);
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+router.post('/content/:id/reject', async (req, res, next) => {
+  try {
+    const { reason } = req.body;
+    const db = getSupabaseClient();
+    await db.from('content_approvals').update({ status: 'rejected', review_reason: reason || null, reviewed_by: req.adminUser.email, reviewed_at: new Date().toISOString() }).eq('id', req.params.id);
+    await writeAudit(db, req.adminUser.email, 'reject_content', 'content_approval', req.params.id, { reason });
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// ── AI Costs Per Tenant ────────────────────────────────────────────────────────
+
+router.get('/ai/costs', async (req, res, next) => {
+  try {
+    const db = getSupabaseClient();
+    const period = new Date().toISOString().slice(0, 7);
+    const [usageRes, tenantsRes] = await Promise.all([
+      db.from('usage_records').select('tenant_id, skill, cost_usd').eq('billing_period', period),
+      db.from('tenants').select('id, name, plan'),
+    ]);
+    const tenantMap = Object.fromEntries((tenantsRes.data || []).map((t) => [t.id, t]));
+    const byTenant = {};
+    for (const r of (usageRes.data || [])) {
+      if (!byTenant[r.tenant_id]) byTenant[r.tenant_id] = { ops: 0, costUsd: 0, bySkill: {} };
+      byTenant[r.tenant_id].ops++;
+      byTenant[r.tenant_id].costUsd += r.cost_usd || 0;
+      if (!byTenant[r.tenant_id].bySkill[r.skill]) byTenant[r.tenant_id].bySkill[r.skill] = { ops: 0, costUsd: 0 };
+      byTenant[r.tenant_id].bySkill[r.skill].ops++;
+      byTenant[r.tenant_id].bySkill[r.skill].costUsd += r.cost_usd || 0;
+    }
+    const tenants = Object.entries(byTenant).map(([tid, v]) => ({
+      tenantId: tid, tenantName: tenantMap[tid]?.name || '—', plan: tenantMap[tid]?.plan || '—',
+      ops: v.ops, costUsd: parseFloat(v.costUsd.toFixed(4)),
+      bySkill: Object.entries(v.bySkill).map(([skill, sv]) => ({ skill, ops: sv.ops, costUsd: parseFloat(sv.costUsd.toFixed(4)) })).sort((a, b) => b.costUsd - a.costUsd),
+    })).sort((a, b) => b.costUsd - a.costUsd);
+    res.json({ tenants, period });
+  } catch (err) { next(err); }
+});
+
+// ── Security ───────────────────────────────────────────────────────────────────
+
+router.get('/security/suspicious', async (req, res, next) => {
+  try {
+    const db = getSupabaseClient();
+    const { data: { users } } = await db.auth.admin.listUsers({ perPage: 500 });
+    const disposable = ['mailinator.com','guerrillamail.com','tempmail.com','throwaway.email','yopmail.com','10minutemail.com','trashmail.com','sharklasers.com'];
+    const sevenDaysAgo = new Date(Date.now() - 7 * 86400000);
+    const suspicious = users
+      .filter((u) => {
+        const isDisposable = disposable.some((d) => u.email?.endsWith('@' + d));
+        const isOldUnconfirmed = !u.email_confirmed_at && new Date(u.created_at) < sevenDaysAgo;
+        return isDisposable || isOldUnconfirmed;
+      })
+      .map((u) => ({
+        id: u.id, email: u.email, createdAt: u.created_at,
+        emailConfirmed: !!u.email_confirmed_at, isBanned: !!u.banned_until,
+        reason: disposable.some((d) => u.email?.endsWith('@' + d)) ? 'Disposable email domain' : 'Unconfirmed > 7 days',
+      }));
+    res.json({ suspicious });
+  } catch (err) { next(err); }
+});
+
+router.get('/security/blocklist', async (req, res, next) => {
+  try {
+    const db = getSupabaseClient();
+    const { data } = await db.from('ip_blocklist').select('*').order('created_at', { ascending: false });
+    res.json({ blocklist: data || [] });
+  } catch (err) { next(err); }
+});
+
+router.post('/security/blocklist', async (req, res, next) => {
+  try {
+    const { value, type = 'ip', reason } = req.body;
+    if (!value?.trim()) return res.status(400).json({ error: 'Value required' });
+    const db = getSupabaseClient();
+    const { data, error } = await db.from('ip_blocklist').insert({ value: value.trim(), type, reason: reason || null, created_by: req.adminUser.email }).select().single();
+    if (error?.code === '23505') return res.status(409).json({ error: 'Already in blocklist' });
+    if (error) throw error;
+    await writeAudit(db, req.adminUser.email, 'add_blocklist', 'ip_blocklist', data.id, { value: value.trim(), type });
+    res.json({ entry: data });
+  } catch (err) { next(err); }
+});
+
+router.delete('/security/blocklist/:id', async (req, res, next) => {
+  try {
+    const db = getSupabaseClient();
+    await db.from('ip_blocklist').delete().eq('id', req.params.id);
+    await writeAudit(db, req.adminUser.email, 'remove_blocklist', 'ip_blocklist', req.params.id);
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;
