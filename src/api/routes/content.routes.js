@@ -10,6 +10,8 @@ const { getBrandConfig } = require('../../services/brand-config');
 const { isMongoAvailable } = require('../../services/database/mongodb-client');
 const Content = require('../../models/content.model');
 const { enqueue } = require('../../orchestrator/message-queue');
+const { supabaseQuery } = require('../../services/database/supabase-client');
+const { eventBus, EVENTS } = require('../../services/messaging/event-emitter');
 const { QUEUES, PRIORITY } = require('../../config/constants');
 
 const router = Router();
@@ -112,6 +114,123 @@ router.post('/:id/regenerate-image', async (req, res, next) => {
     await Content.findByIdAndUpdate(content._id, { imageStatus: 'generating' });
 
     res.json({ queued: true, jobId: String(job.id) });
+  } catch (err) { next(err); }
+});
+
+// ── Content Approval Gate ──────────────────────────────────────────────────────
+
+/**
+ * GET /api/content/approvals
+ * List pending (and recent resolved) content approvals for the tenant.
+ */
+router.get('/approvals', async (req, res, next) => {
+  try {
+    const rows = await supabaseQuery((db) =>
+      db.from('content_approvals')
+        .select('id, content_preview, platform, content_type, brand_score, review_summary, status, decided_at, created_at')
+        .eq('tenant_id', req.tenantId)
+        .order('created_at', { ascending: false })
+        .limit(50)
+    );
+    res.json({ data: rows || [] });
+  } catch (err) { next(err); }
+});
+
+/**
+ * PATCH /api/content/approvals/:id/approve
+ * Approve a pending content item — fires CONTENT_APPROVED so the orchestrator publishes it.
+ */
+router.patch('/approvals/:id/approve', async (req, res, next) => {
+  try {
+    const row = await supabaseQuery((db) =>
+      db.from('content_approvals')
+        .select('*')
+        .eq('id', req.params.id)
+        .eq('tenant_id', req.tenantId)
+        .single()
+    );
+    if (!row) return res.status(404).json({ error: 'Approval not found' });
+    if (row.status !== 'pending') return res.status(409).json({ error: 'Already decided', status: row.status });
+
+    await supabaseQuery((db) =>
+      db.from('content_approvals')
+        .update({ status: 'approved', decided_at: new Date().toISOString(), decided_by: req.userEmail || null })
+        .eq('id', req.params.id)
+    );
+
+    // Replay the original job data through the content_approved event
+    eventBus.publish(EVENTS.CONTENT_APPROVED, {
+      ...row.job_data,
+      approvalId: row.id,
+      humanApproved: true,
+    });
+
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+/**
+ * PATCH /api/content/approvals/:id/reject
+ * Reject a pending content item with an optional reason.
+ * Body: { reason?: string }
+ */
+router.patch('/approvals/:id/reject', async (req, res, next) => {
+  try {
+    const row = await supabaseQuery((db) =>
+      db.from('content_approvals')
+        .select('id, status, tenant_id')
+        .eq('id', req.params.id)
+        .eq('tenant_id', req.tenantId)
+        .single()
+    );
+    if (!row) return res.status(404).json({ error: 'Approval not found' });
+    if (row.status !== 'pending') return res.status(409).json({ error: 'Already decided', status: row.status });
+
+    await supabaseQuery((db) =>
+      db.from('content_approvals')
+        .update({
+          status: 'rejected',
+          decided_at: new Date().toISOString(),
+          decided_by: req.userEmail || null,
+          rejection_reason: req.body.reason || null,
+        })
+        .eq('id', req.params.id)
+    );
+
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+/**
+ * PATCH /api/content/approval-gate
+ * Toggle the human-approval gate for this tenant.
+ * Body: { enabled: boolean }
+ */
+router.patch('/approval-gate', async (req, res, next) => {
+  try {
+    const { enabled } = req.body;
+    if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled must be a boolean' });
+
+    await supabaseQuery((db) =>
+      db.from('tenants')
+        .update({ settings: { require_content_approval: enabled } })
+        .eq('id', req.tenantId)
+    );
+
+    res.json({ ok: true, require_content_approval: enabled });
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /api/content/approval-gate
+ * Returns the current approval gate setting for the tenant.
+ */
+router.get('/approval-gate', async (req, res, next) => {
+  try {
+    const row = await supabaseQuery((db) =>
+      db.from('tenants').select('settings').eq('id', req.tenantId).single()
+    );
+    res.json({ require_content_approval: row?.settings?.require_content_approval === true });
   } catch (err) { next(err); }
 });
 

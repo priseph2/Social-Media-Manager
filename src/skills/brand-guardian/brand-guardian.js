@@ -10,6 +10,7 @@ const { SKILLS, QUEUES, PRIORITY, MODELS, BRAND } = require('../../config/consta
 const { getBrandConfig } = require('../../services/brand-config');
 const Content = require('../../models/content.model');
 const { isMongoAvailable } = require('../../services/database/mongodb-client');
+const { supabaseQuery } = require('../../services/database/supabase-client');
 
 function buildSystemPrompt(brandConfig) {
   const name = brandConfig?.identity?.name || 'the brand';
@@ -87,6 +88,7 @@ class BrandGuardian extends BaseSkill {
         complianceFlags: complianceResult.flags,
       }, job);
       await this._updateContentDocument(job.data.originalJobId, result);
+      await this._dispatchResult(job, result);
       return result;
     }
 
@@ -102,6 +104,7 @@ class BrandGuardian extends BaseSkill {
           requiresHumanApproval: false,
         }, job);
         await this._updateContentDocument(job.data.originalJobId, result);
+        await this._dispatchResult(job, result);
         return result;
       }
     }
@@ -138,6 +141,7 @@ class BrandGuardian extends BaseSkill {
 
     const result = this._buildResult({ ...reviewData, staticViolations: quickResult.violations, complianceFlags: complianceResult.flags }, job);
     await this._updateContentDocument(job.data.originalJobId, result);
+    await this._dispatchResult(job, result);
     return result;
   }
 
@@ -160,25 +164,8 @@ class BrandGuardian extends BaseSkill {
     const { decision, qualityScore, requiresHumanApproval } = reviewData;
     const isApproved = decision === 'approved' || decision === 'approved_with_suggestions';
 
-    if (isApproved && !requiresHumanApproval) {
-      eventBus.publish(EVENTS.CONTENT_APPROVED, { jobId: job.id, tenantId: job.data.tenantId, ...job.data, review: reviewData });
-    }
-
-    if (requiresHumanApproval || qualityScore < BRAND.HIGH_RISK_THRESHOLD) {
-      eventBus.publish(EVENTS.ESCALATION_REQUIRED, {
-        type: 'brand_review_escalation',
-        tenantId: job.data.tenantId,
-        jobId: job.id,
-        content: job.data.content?.substring(0, 200),
-        reason: reviewData.summary,
-      });
-    }
-
     this.log.info(`Brand review: ${decision} (score: ${qualityScore})`, {
-      jobId: job.id,
-      decision,
-      qualityScore,
-      requiresHumanApproval,
+      jobId: job.id, decision, qualityScore, requiresHumanApproval,
     });
 
     return {
@@ -193,6 +180,73 @@ class BrandGuardian extends BaseSkill {
       staticViolations: reviewData.staticViolations || [],
       complianceFlags: reviewData.complianceFlags || [],
     };
+  }
+
+  async _dispatchResult(job, result) {
+    const { decision, qualityScore, requiresHumanApproval, approved } = result;
+
+    // Escalate if score is very low or AI flagged it
+    if (requiresHumanApproval || qualityScore < BRAND.HIGH_RISK_THRESHOLD) {
+      eventBus.publish(EVENTS.ESCALATION_REQUIRED, {
+        type: 'brand_review_escalation',
+        tenantId: job.data.tenantId,
+        jobId: job.id,
+        content: job.data.content?.substring(0, 200),
+        reason: result.summary,
+      });
+    }
+
+    if (!approved || requiresHumanApproval) return;
+
+    // Check if this tenant requires a human approval gate before publishing
+    const needsGate = await this._tenantRequiresApprovalGate(job.data.tenantId);
+
+    if (needsGate) {
+      await this._saveForHumanApproval(job, result);
+    } else {
+      eventBus.publish(EVENTS.CONTENT_APPROVED, {
+        jobId: job.id, tenantId: job.data.tenantId, ...job.data, review: result,
+      });
+    }
+  }
+
+  async _tenantRequiresApprovalGate(tenantId) {
+    if (!tenantId) return false;
+    try {
+      const row = await supabaseQuery((db) =>
+        db.from('tenants').select('settings').eq('id', tenantId).single()
+      );
+      return row?.settings?.require_content_approval === true;
+    } catch {
+      return false;
+    }
+  }
+
+  async _saveForHumanApproval(job, result) {
+    const { tenantId, content, platform, type } = job.data;
+    try {
+      await supabaseQuery((db) =>
+        db.from('content_approvals').insert({
+          tenant_id: tenantId,
+          job_data: job.data,
+          content_preview: (typeof content === 'string' ? content : content?.selectedContent || JSON.stringify(content))?.substring(0, 500),
+          platform: platform || null,
+          content_type: type || null,
+          brand_score: result.qualityScore,
+          review_summary: result.summary,
+        })
+      );
+      eventBus.publish(EVENTS.CONTENT_PENDING_APPROVAL, {
+        tenantId, jobId: job.id, platform, contentType: type, brandScore: result.qualityScore,
+      });
+      this.log.info('Content queued for human approval', { jobId: job.id, tenantId, platform });
+    } catch (err) {
+      this.log.error('Failed to save content for approval — falling back to auto-publish', { error: err });
+      // Safety fallback: publish anyway so content isn't silently lost
+      eventBus.publish(EVENTS.CONTENT_APPROVED, {
+        jobId: job.id, tenantId, ...job.data, review: result,
+      });
+    }
   }
 
   async reviewSync(contentData) {

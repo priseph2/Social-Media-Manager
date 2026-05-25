@@ -4,6 +4,7 @@ const { Queue, Worker, QueueEvents } = require('bullmq');
 const { getRedisClient } = require('../services/database/redis-client');
 const logger = require('../utils/logger');
 const { QUEUES, PRIORITY } = require('../config/constants');
+const { checkTenantRateLimit } = require('../services/rate-limiter');
 
 const queues = {};
 const workers = {};
@@ -34,12 +35,24 @@ function getQueue(queueName) {
 
 /**
  * Adds a job to a named queue.
+ * Pass opts.skipRateLimit = true for internal system jobs (analytics, etc.)
  */
 async function enqueue(queueName, jobName, data, opts = {}) {
   const queue = getQueue(queueName);
   if (!queue) {
     logger.warn(`Dropping job "${jobName}" — queue "${queueName}" not available`);
     return null;
+  }
+
+  // Per-tenant rate limiting (skip for internal/system jobs)
+  if (data?.tenantId && !opts.skipRateLimit) {
+    const check = await checkTenantRateLimit(data.tenantId);
+    if (!check.allowed) {
+      logger.warn(`[RateLimit] Job "${jobName}" blocked for tenant ${data.tenantId}`, {
+        count: check.count, limit: check.limit, plan: check.plan,
+      });
+      return null;
+    }
   }
 
   const job = await queue.add(jobName, data, {

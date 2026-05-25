@@ -120,13 +120,12 @@ class MetaAPI {
    * @param {object} opts
    * @param {string} opts.message     - post text
    * @param {string} [opts.link]      - URL to attach
-   * @param {string} [opts.published] - 'true' | 'false' (default 'true')
    * @param {number} [opts.scheduledPublishTime] - Unix timestamp for scheduled posts
    */
-  async publishPagePost({ message, link, published = 'true', scheduledPublishTime } = {}) {
+  async publishPagePost({ message, link, scheduledPublishTime } = {}) {
     if (!this.available) return { success: false, reason: 'Meta not configured' };
     try {
-      const params = { message, published };
+      const params = { message, published: 'true' };
       if (link) params.link = link;
       if (scheduledPublishTime) {
         params.published = 'false';
@@ -137,6 +136,53 @@ class MetaAPI {
       return { success: true, postId: data?.id };
     } catch (err) {
       logger.error('[Meta] publishPagePost failed', { error: err.message });
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Publish a photo post to Instagram via the two-step Graph API flow.
+   *
+   * Step 1: create a media container with caption + image URL.
+   * Step 2: publish the container.
+   *
+   * Requires instagram_content_publish permission.
+   * Falls back gracefully if igBusinessId is not set.
+   *
+   * @param {object} opts
+   * @param {string} opts.caption            - post caption
+   * @param {string} [opts.imageUrl]         - publicly accessible image URL
+   * @param {number} [opts.scheduledPublishTime] - Unix timestamp (requires content_scheduling permission)
+   */
+  async publishInstagramPost({ caption, imageUrl, scheduledPublishTime } = {}) {
+    if (!this.available) return { success: false, reason: 'Meta not configured' };
+    if (!this.igBusinessId) return { success: false, reason: 'INSTAGRAM_BUSINESS_ACCOUNT_ID not set' };
+    if (!imageUrl) return { success: false, reason: 'Instagram requires an image URL for native publishing' };
+
+    try {
+      // Step 1: create media container
+      const containerParams = { caption };
+      if (imageUrl) {
+        containerParams.image_url = imageUrl;
+        containerParams.media_type = 'IMAGE';
+      }
+      if (scheduledPublishTime) {
+        containerParams.published = 'false';
+        containerParams.scheduled_publish_time = String(scheduledPublishTime);
+      }
+
+      const container = await this._request(`/${this.igBusinessId}/media`, 'POST', containerParams);
+      if (!container?.id) throw new Error('No container ID returned from Instagram media create');
+
+      // Step 2: publish the container
+      const result = await this._request(`/${this.igBusinessId}/media_publish`, 'POST', {
+        creation_id: container.id,
+      });
+
+      logger.info('[Meta] Instagram post published', { postId: result?.id });
+      return { success: true, postId: result?.id, containerId: container.id };
+    } catch (err) {
+      logger.error('[Meta] publishInstagramPost failed', { error: err.message });
       return { success: false, error: err.message };
     }
   }

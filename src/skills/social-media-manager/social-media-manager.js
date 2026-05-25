@@ -10,6 +10,7 @@ const { enqueue } = require('../../orchestrator/message-queue');
 const { supabaseQuery } = require('../../services/database/supabase-client');
 const bufferApi = require('../../services/api-clients/buffer-api');
 const metaApi = require('../../services/api-clients/meta-api');
+const tiktokApi = require('../../services/api-clients/tiktok-api');
 const { SKILLS, QUEUES, PRIORITY, MODELS } = require('../../config/constants');
 
 const ADAPTATION_TOOL = {
@@ -124,7 +125,7 @@ class SocialMediaManager extends BaseSkill {
   // ── Schedule Post ────────────────────────────────────────────────────────────
 
   async schedulePost(job) {
-    const { platform, content, scheduledAt, contentType = 'lifestyle', originalJobId } = job.data;
+    const { platform, content, scheduledAt, contentType = 'lifestyle', originalJobId, imageUrl, videoUrl } = job.data;
     const text = content?.selectedContent || content?.captions?.[content.recommendedIndex]?.text || content;
 
     if (!text) throw new Error('schedulePost: no content text provided');
@@ -141,13 +142,38 @@ class SocialMediaManager extends BaseSkill {
 
     // Determine optimal posting time
     const postTime = scheduledAt || (await this._getOptimalPostTime(platform));
+    const scheduledTs = postTime ? Math.floor(new Date(postTime).getTime() / 1000) : null;
 
-    // Schedule via Buffer (no-op if not configured)
-    const bufferResult = await bufferApi.schedulePost({
-      platform,
-      text: adapted.text,
-      scheduledAt: postTime,
-    });
+    // ── Native publishing (Meta/TikTok) with Buffer fallback ──────────────────
+    let nativeResult = null;
+    let bufferResult = { success: false };
+
+    if (platform === 'instagram' && metaApi.available && imageUrl) {
+      nativeResult = await metaApi.publishInstagramPost({
+        caption: adapted.text,
+        imageUrl,
+        scheduledPublishTime: scheduledTs,
+      });
+      this.log.info(`Instagram native publish: ${nativeResult.success ? 'ok' : nativeResult.error}`, { jobId: job.id });
+    } else if (platform === 'facebook' && metaApi.available) {
+      nativeResult = await metaApi.publishPagePost({
+        message: adapted.text,
+        scheduledPublishTime: scheduledTs,
+      });
+      this.log.info(`Facebook native publish: ${nativeResult.success ? 'ok' : nativeResult.error}`, { jobId: job.id });
+    } else if (platform === 'tiktok' && tiktokApi.available) {
+      if (imageUrl) {
+        nativeResult = await tiktokApi.publishPhotoPost({ caption: adapted.text, imageUrls: [imageUrl] });
+      } else if (videoUrl) {
+        nativeResult = await tiktokApi.publishVideoPost({ caption: adapted.text, videoUrl });
+      }
+      if (nativeResult) this.log.info(`TikTok native publish: ${nativeResult.success ? 'ok' : nativeResult.reason || nativeResult.error}`, { jobId: job.id });
+    }
+
+    // Fall back to Buffer if native posting was skipped or failed
+    if (!nativeResult?.success) {
+      bufferResult = await bufferApi.schedulePost({ platform, text: adapted.text, scheduledAt: postTime });
+    }
 
     // Log to Supabase content_schedule table
     await this._logScheduledPost({
@@ -159,7 +185,11 @@ class SocialMediaManager extends BaseSkill {
       originalJobId,
     });
 
-    this.log.info(`Post scheduled for ${platform} at ${postTime}`, { jobId: job.id, bufferSuccess: bufferResult.success });
+    this.log.info(`Post handled for ${platform} at ${postTime}`, {
+      jobId: job.id,
+      nativeSuccess: nativeResult?.success ?? false,
+      bufferSuccess: bufferResult.success,
+    });
 
     return {
       success: true,
@@ -167,6 +197,7 @@ class SocialMediaManager extends BaseSkill {
       scheduledAt: postTime,
       contentLength: adapted.text.length,
       hashtagCount: hashtags.length,
+      nativePublished: nativeResult?.success ?? false,
       bufferScheduled: bufferResult.success,
       jobId: job.id,
     };

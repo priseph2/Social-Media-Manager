@@ -12,11 +12,17 @@ interface BrandConfig {
   visual?: { style?: string; colorPalette?: string[] };
 }
 
+interface ApprovalGate {
+  require_content_approval: boolean;
+}
+
 const inputCls = 'w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent';
 
 export default function BrandSettingsPage() {
   const supabase = createClient();
   const [config, setConfig] = useState<BrandConfig>({});
+  const [approvalGate, setApprovalGate] = useState(false);
+  const [savingGate, setSavingGate] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -27,8 +33,12 @@ export default function BrandSettingsPage() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
       try {
-        const data = await apiRequest<BrandConfig>('/api/tenants/me/brand-config', session.access_token);
-        setConfig(data);
+        const [brandData, gateData] = await Promise.all([
+          apiRequest<BrandConfig>('/api/tenants/me/brand-config', session.access_token),
+          apiRequest<ApprovalGate>('/api/content/approval-gate', session.access_token),
+        ]);
+        setConfig(brandData);
+        setApprovalGate(gateData.require_content_approval);
       } catch {
         setError('Failed to load brand config');
       } finally {
@@ -36,6 +46,20 @@ export default function BrandSettingsPage() {
       }
     })();
   }, []);
+
+  async function toggleApprovalGate(enabled: boolean) {
+    setSavingGate(true);
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    try {
+      await apiRequest('/api/content/approval-gate', session.access_token, {
+        method: 'PATCH',
+        body: JSON.stringify({ enabled }),
+      });
+      setApprovalGate(enabled);
+    } catch { /* silent */ }
+    finally { setSavingGate(false); }
+  }
 
   function set(path: string[], value: unknown) {
     setConfig((prev) => {
@@ -143,6 +167,28 @@ export default function BrandSettingsPage() {
           <Field label="Secondary audience">
             <textarea value={config.audience?.secondary ?? ''} onChange={(e) => set(['audience', 'secondary'], e.target.value)} rows={2} className={inputCls} />
           </Field>
+        </Section>
+
+        <Section title="Content Publishing">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-slate-700">Require human approval before publishing</p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                When enabled, AI-generated content that passes brand review is held in the{' '}
+                <a href="/dashboard/content/approvals" className="text-indigo-600 hover:underline">Approvals queue</a>{' '}
+                until you approve it. Disable to auto-publish immediately.
+              </p>
+            </div>
+            <button
+              onClick={() => toggleApprovalGate(!approvalGate)}
+              disabled={savingGate}
+              className={`relative shrink-0 w-10 h-6 rounded-full transition-colors ${approvalGate ? 'bg-indigo-600' : 'bg-slate-300'} disabled:opacity-60`}
+              role="switch"
+              aria-checked={approvalGate}
+            >
+              <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${approvalGate ? 'translate-x-4' : 'translate-x-0'}`} />
+            </button>
+          </div>
         </Section>
 
         <Section title="Visual Identity">

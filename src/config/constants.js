@@ -47,7 +47,17 @@ module.exports = {
     SCHEDULED_TASK: 'scheduled_task_time',
     CONTENT_APPROVED: 'content_approved',
     CONTENT_REJECTED: 'content_rejected',
+    CONTENT_PENDING_APPROVAL: 'content_pending_approval',
     ESCALATION_REQUIRED: 'escalation_required',
+  },
+
+  // ── Per-tenant hourly AI ops rate limits ───────────────────────────────────
+  RATE_LIMITS: {
+    starter: 50,
+    growth: 200,
+    agency: 1000,
+    trial: 20,
+    default: 30,
   },
 
   // ── Social platforms ───────────────────────────────────────────────────────
