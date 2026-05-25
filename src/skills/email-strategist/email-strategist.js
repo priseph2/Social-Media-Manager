@@ -134,27 +134,50 @@ class EmailStrategist extends BaseSkill {
       emailBody = await this._generateCampaignCopy({ campaignGoal, segment, product, offer, urgency });
     }
 
-    // Send to Brand Guardian for review before creating in Mailchimp
-    const reviewJob = await enqueue(QUEUES.BRAND_REVIEW, 'review-content', {
-      content: `Subject: ${subjectOptions[recommended].subject}\n\n${emailBody.openingHook}\n\n${emailBody.mainContent}`,
-      type: 'email_campaign',
-      context: `Campaign goal: ${campaignGoal}, Segment: ${audienceSegment}`,
-    }, { priority: PRIORITY.HIGH });
+    const subject = subjectOptions[recommended].subject;
+    const htmlContent = this._buildCampaignHtml({ subject, emailBody, segment });
 
-    // Log campaign to Supabase
-    await this._logCampaign({
-      subject: subjectOptions[recommended].subject,
+    // Create Mailchimp draft immediately so we have a campaignId before brand review
+    const mailchimpResult = await mailchimpApi.createCampaign({
+      subject,
+      previewText: subjectOptions[recommended].previewText || '',
+      htmlContent,
+      fromName: job.data.fromName,
+      replyTo: job.data.replyTo,
+    });
+    const mailchimpCampaignId = mailchimpResult.success ? mailchimpResult.campaignId : null;
+    if (!mailchimpResult.success) {
+      this.log.warn('Mailchimp campaign creation skipped', { reason: mailchimpResult.reason || mailchimpResult.error });
+    }
+
+    // Log campaign to Supabase and get the row ID
+    const emailCampaignId = await this._logCampaign({
+      subject,
       segment: audienceSegment,
       status: 'pending_brand_review',
       goalType: campaignGoal,
+      mailchimpId: mailchimpCampaignId,
+      tenantId: job.data.tenantId,
     });
+
+    // Send to Brand Guardian for review — include IDs so orchestrator can fire the send
+    const reviewJob = await enqueue(QUEUES.BRAND_REVIEW, 'review-content', {
+      content: `Subject: ${subject}\n\n${emailBody.openingHook}\n\n${emailBody.mainContent}`,
+      type: 'email_campaign',
+      context: `Campaign goal: ${campaignGoal}, Segment: ${audienceSegment}`,
+      emailCampaignId,
+      mailchimpCampaignId,
+      tenantId: job.data.tenantId,
+    }, { priority: PRIORITY.HIGH });
 
     return {
       subjectLines: subjectOptions,
       recommendedSubjectIndex: recommended,
       emailBody,
       segment,
-      status: 'pending_brand_review',
+      status: mailchimpCampaignId ? 'pending_brand_review' : 'draft_ready',
+      mailchimpCampaignId,
+      emailCampaignId,
       reviewJobId: reviewJob?.id,
       jobId: job.id,
     };
@@ -401,15 +424,29 @@ class EmailStrategist extends BaseSkill {
     ];
   }
 
-  async _logCampaign({ subject, segment, status, goalType }) {
-    await supabaseQuery((db) =>
+  async _logCampaign({ subject, segment, status, goalType, mailchimpId, tenantId }) {
+    const result = await supabaseQuery((db) =>
       db.from('email_campaigns').insert({
         subject,
         segment,
         status,
         goal_type: goalType,
-      })
+        mailchimp_id: mailchimpId || null,
+        tenant_id: tenantId || null,
+      }).select('id').single()
     );
+    return result?.id || null;
+  }
+
+  _buildCampaignHtml({ subject, emailBody, segment }) {
+    return `<!DOCTYPE html><html><body style="font-family:sans-serif;max-width:600px;margin:0 auto;color:#1e293b;line-height:1.6;padding:32px 16px">
+<h2 style="color:#1e293b;margin-bottom:16px">${subject}</h2>
+<p>${emailBody.openingHook || ''}</p>
+<p>${(emailBody.mainContent || '').replace(/\n/g, '<br>')}</p>
+<p><strong>${emailBody.callToAction || 'Shop Now'}</strong></p>
+<hr style="border:none;border-top:1px solid #e2e8f0;margin:32px 0">
+<p style="font-size:12px;color:#94a3b8">You're receiving this as a ${segment?.label || ''} customer.</p>
+</body></html>`;
   }
 }
 

@@ -5,6 +5,7 @@ const { authenticate } = require('../middleware/auth');
 const { getSupabaseClient } = require('../../services/database/supabase-client');
 const { setBrandConfig } = require('../../services/brand-config');
 const { setCredentials } = require('../../services/credential-store');
+const { sendWelcomeEmail } = require('../../services/transactional-email');
 const logger = require('../../utils/logger');
 
 const router = express.Router();
@@ -12,7 +13,7 @@ router.use(authenticate);
 
 const ALLOWED_CREDENTIAL_SERVICES = new Set([
   'ecommerce', 'twitter', 'instagram', 'facebook', 'linkedin',
-  'ga4', 'mailchimp', 'whatsapp', 'tidio', 'buffer', 'shopify',
+  'ga4', 'mailchimp', 'whatsapp', 'tidio', 'buffer', 'shopify', 'canva',
 ]);
 const SLUG_MAX_LENGTH = 63;
 
@@ -177,9 +178,14 @@ router.put('/me/onboarding/:step', async (req, res, next) => {
       completed_at: new Date().toISOString(),
     }, { onConflict: 'tenant_id,step' });
 
-    // If final step, activate tenant
+    // If final step, activate tenant + send welcome email
     if (req.params.step === 'launch') {
       await supabase.from('tenants').update({ status: 'active', updated_at: new Date().toISOString() }).eq('id', req.tenantId);
+
+      const { data: tenant } = await supabase.from('tenants').select('name, plan').eq('id', req.tenantId).single();
+      if (req.userEmail && tenant) {
+        sendWelcomeEmail({ to: req.userEmail, tenantName: tenant.name, plan: tenant.plan }).catch(() => {});
+      }
     }
 
     res.json({ ok: true });

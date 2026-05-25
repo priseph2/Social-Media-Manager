@@ -99,8 +99,24 @@ class Orchestrator {
       await this._notifyHumanManager({ type: EVENTS.NEGATIVE_SENTIMENT, ...data });
     });
 
-    // Content approved → schedule post + generate image in parallel
+    // Content approved → route based on content type
     eventBus.subscribe(EVENTS.CONTENT_APPROVED, SKILLS.ORCHESTRATOR, async (data) => {
+      if (data.type === 'email_campaign') {
+        // Email campaigns: send via Mailchimp if a draft was created
+        if (data.mailchimpCampaignId) {
+          this.log.info('Email campaign approved — sending via Mailchimp', { campaignId: data.emailCampaignId });
+          await enqueue(QUEUES.EMAIL, 'send-campaign', {
+            campaignId: data.emailCampaignId,
+            mailchimpCampaignId: data.mailchimpCampaignId,
+            tenantId: data.tenantId,
+          }, { priority: PRIORITY.NORMAL });
+        } else {
+          this.log.warn('Email campaign approved but no Mailchimp draft — manual send required', { emailCampaignId: data.emailCampaignId });
+        }
+        return;
+      }
+
+      // Social content: schedule post + generate image in parallel
       this.log.info('Content approved — routing to Social Media Manager + Visual Designer', data);
       const jobs = [enqueue(QUEUES.SOCIAL, 'schedule-post', data, { priority: PRIORITY.NORMAL })];
       if (data.contentId && data.type === 'social_caption') {

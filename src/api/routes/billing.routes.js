@@ -9,6 +9,8 @@ const {
 const { getMonthlyUsage, getSkillBreakdown } = require('../../services/billing/usage-meter');
 const paystack = require('../../services/billing/paystack');
 const { getPlan, PLANS } = require('../../config/plans');
+const { getSupabaseClient } = require('../../services/database/supabase-client');
+const { sendBillingConfirmationEmail } = require('../../services/transactional-email');
 const logger = require('../../utils/logger');
 
 const router = Router();
@@ -323,6 +325,23 @@ async function handlePaystackEvent(event, data, tenantId) {
         current_period_start: new Date().toISOString(),
       });
       await logBillingEvent(tenantId, 'payment.succeeded', { plan, amount: data.amount, reference: data.reference });
+
+      // Send billing confirmation email
+      const customerEmail = data.customer?.email;
+      if (customerEmail) {
+        const db = getSupabaseClient();
+        const { data: tenant } = db ? await db.from('tenants').select('name').eq('id', tenantId).single() : {};
+        const currency = data.currency?.toUpperCase() || 'NGN';
+        const amountFormatted = currency === 'USD'
+          ? `$${(data.amount / 100).toFixed(2)}`
+          : `₦${(data.amount / 100).toLocaleString()}`;
+        sendBillingConfirmationEmail({
+          to: customerEmail,
+          tenantName: tenant?.name || 'there',
+          plan,
+          amountFormatted,
+        }).catch(() => {});
+      }
       break;
     }
 

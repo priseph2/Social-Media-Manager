@@ -24,15 +24,16 @@ export async function middleware(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   const { pathname } = request.nextUrl;
 
-  const isLoginOrSignup = pathname.startsWith('/login') || pathname.startsWith('/signup');
+  const isPublicPath = pathname.startsWith('/login') || pathname.startsWith('/signup')
+    || pathname.startsWith('/forgot-password') || pathname.startsWith('/reset-password');
 
-  // Unauthenticated users may only access login and signup
-  if (!user && !isLoginOrSignup) {
+  // Unauthenticated users may only access public auth pages
+  if (!user && !isPublicPath) {
     return NextResponse.redirect(new URL('/login', request.url));
   }
 
-  // Authenticated users don't need login/signup — but /onboarding is allowed
-  if (user && isLoginOrSignup) {
+  // Authenticated users don't need login/signup — password reset pages remain accessible
+  if (user && (pathname.startsWith('/login') || pathname.startsWith('/signup'))) {
     return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 
