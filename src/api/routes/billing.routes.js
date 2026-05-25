@@ -158,7 +158,7 @@ router.post('/checkout', authenticate, async (req, res) => {
       publicKey: paystack.publicKey,
     });
   } catch (err) {
-    logger.error('POST /billing/checkout error', { error: err.message });
+    logger.error(`POST /billing/checkout error: ${err.message}`);
     res.status(502).json({ error: err.message });
   }
 });

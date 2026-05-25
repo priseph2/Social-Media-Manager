@@ -32,7 +32,7 @@ class PaystackClient {
     const opts = { method, headers: this._headers };
     if (body) opts.body = JSON.stringify(body);
 
-    logger.debug(`Paystack → ${method} ${BASE_URL}${path}`, {
+    logger.info(`Paystack → ${method} ${path}`, {
       keyPrefix: this.secretKey?.slice(0, 12) + '…',
       body: body ? { ...body, email: body.email ? '***' : undefined } : null,
     });
@@ -46,7 +46,7 @@ class PaystackClient {
       throw new Error(`Paystack ${method} ${path} → ${res.status}: non-JSON response: ${text.slice(0, 200)}`);
     }
 
-    logger.debug(`Paystack ← ${res.status}`, { status: json.status, message: json.message });
+    logger.info(`Paystack ← ${res.status} ${json.status ? 'OK' : 'ERR'}: ${json.message || '(no message)'}`);
 
     if (!res.ok || !json.status) {
       throw new Error(`Paystack ${method} ${path} → ${res.status}: ${json.message || JSON.stringify(json)}`);
