@@ -41,7 +41,7 @@ const STATUS_STYLES: Record<string, string> = {
   suspended: 'bg-red-100 text-red-700',
 };
 
-const TABS = ['Overview', 'Connections', 'Onboarding', 'Escalations', 'Activity'];
+const TABS = ['Overview', 'Connections', 'Onboarding', 'Escalations', 'Activity', 'Notes'];
 
 export default function TenantDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -57,6 +57,14 @@ export default function TenantDetailPage() {
   const [editImageProvider, setEditImageProvider] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
+
+  // Notes state
+  const [notes, setNotes] = useState<Array<{ id: string; note: string; created_by: string; created_at: string }>>([]);
+  const [noteText, setNoteText] = useState('');
+  const [noteSaving, setNoteSaving] = useState(false);
+
+  // Impersonate state
+  const [impersonating, setImpersonating] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -82,6 +90,42 @@ export default function TenantDetailPage() {
     }
     load();
   }, [id]);
+
+  const loadNotes = async () => {
+    const res = await fetch(`${API}/api/admin/tenants/${id}/notes`, { headers: { Authorization: `Bearer ${token}` } });
+    if (res.ok) { const d = await res.json(); setNotes(d.notes); }
+  };
+
+  const saveNote = async () => {
+    if (!noteText.trim()) return;
+    setNoteSaving(true);
+    const res = await fetch(`${API}/api/admin/tenants/${id}/notes`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note: noteText.trim() }),
+    });
+    if (res.ok) { setNoteText(''); await loadNotes(); }
+    setNoteSaving(false);
+  };
+
+  const deleteNote = async (noteId: string) => {
+    await fetch(`${API}/api/admin/tenants/${id}/notes/${noteId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+    await loadNotes();
+  };
+
+  const impersonate = async () => {
+    if (!confirm('Generate a one-time login link for this tenant? The link gives full access to their account.')) return;
+    setImpersonating(true);
+    const res = await fetch(`${API}/api/admin/tenants/${id}/impersonate`, {
+      method: 'POST', headers: { Authorization: `Bearer ${token}` },
+    });
+    setImpersonating(false);
+    if (res.ok) {
+      const { link } = await res.json();
+      if (link) { window.open(link, '_blank'); }
+      else { alert('No user found for this tenant.'); }
+    } else { alert('Failed to generate impersonation link.'); }
+  };
 
   async function handleSave() {
     if (!data) return;
@@ -179,6 +223,18 @@ export default function TenantDetailPage() {
           >
             {saving ? 'Saving…' : 'Save Changes'}
           </button>
+          <button
+            onClick={impersonate}
+            disabled={impersonating}
+            className="px-4 py-1.5 text-sm bg-amber-600 hover:bg-amber-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+          >
+            {impersonating ? (
+              <>
+                <svg className="animate-spin h-3.5 w-3.5" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+                Impersonating…
+              </>
+            ) : 'Impersonate Tenant'}
+          </button>
           {saveMsg && <span className="text-xs text-emerald-600">{saveMsg}</span>}
         </div>
       </div>
@@ -209,7 +265,7 @@ export default function TenantDetailPage() {
           {TABS.map((t) => (
             <button
               key={t}
-              onClick={() => setTab(t)}
+              onClick={() => { setTab(t); if (t === 'Notes') loadNotes(); }}
               className={`px-4 py-2.5 text-sm border-b-2 -mb-px transition-colors ${
                 tab === t ? 'border-rose-600 text-rose-700 font-medium' : 'border-transparent text-slate-500 hover:text-slate-800'
               }`}
@@ -353,6 +409,42 @@ export default function TenantDetailPage() {
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {tab === 'Notes' && (
+        <div>
+          <div className="mb-4">
+            <textarea
+              value={noteText}
+              onChange={(e) => setNoteText(e.target.value)}
+              placeholder="Add an internal note about this tenant…"
+              rows={3}
+              className="w-full border border-slate-200 rounded-xl p-3 text-sm resize-none focus:ring-2 focus:ring-rose-500 focus:border-transparent outline-none"
+            />
+            <button
+              onClick={saveNote}
+              disabled={noteSaving || !noteText.trim()}
+              className="mt-2 px-4 py-1.5 bg-rose-600 text-white text-sm font-medium rounded-lg disabled:opacity-40"
+            >
+              {noteSaving ? 'Saving…' : 'Add Note'}
+            </button>
+          </div>
+          {notes.length === 0 ? (
+            <p className="text-sm text-slate-400 py-8 text-center">No notes yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {notes.map((n) => (
+                <div key={n.id} className="bg-amber-50 border border-amber-100 rounded-xl p-4">
+                  <p className="text-sm text-slate-800 whitespace-pre-wrap">{n.note}</p>
+                  <div className="flex items-center justify-between mt-2">
+                    <span className="text-xs text-slate-400">{n.created_by} · {new Date(n.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                    <button onClick={() => deleteNote(n.id)} className="text-xs text-red-400 hover:text-red-600">Delete</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -38,28 +38,68 @@ export default function TenantsPage() {
   const [search, setSearch] = useState('');
   const [planFilter, setPlanFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkActing, setBulkActing] = useState(false);
+
+  const getToken = async () => {
+    const supabase = createClient();
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token ?? '';
+  };
+
+  const load = useCallback(async () => {
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const res = await fetch(`${API}/api/admin/tenants`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      setTenants(data.tenants);
+      setFiltered(data.tenants);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load tenants');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    async function load() {
-      try {
-        const supabase = createClient();
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) return;
-        const res = await fetch(`${API}/api/admin/tenants`, {
-          headers: { Authorization: `Bearer ${session.access_token}` },
-        });
-        if (!res.ok) throw new Error(await res.text());
-        const data = await res.json();
-        setTenants(data.tenants);
-        setFiltered(data.tenants);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load tenants');
-      } finally {
-        setLoading(false);
-      }
-    }
     load();
-  }, []);
+  }, [load]);
+
+  const bulkAction = async (status: string) => {
+    if (!confirm(`Set ${selected.size} tenant(s) to "${status}"?`)) return;
+    setBulkActing(true);
+    const token = await getToken();
+    await Promise.all([...selected].map((id) =>
+      fetch(`${API}/api/admin/tenants/${id}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      })
+    ));
+    setBulkActing(false);
+    setSelected(new Set());
+    load();
+  };
+
+  const exportCSV = () => {
+    const rows = [['Name', 'Plan', 'Status', 'Connections', 'Ops This Month', 'Cost USD', 'Created']];
+    tenants.forEach((t: any) => rows.push([
+      t.name, t.plan, t.status,
+      t.connections?.join('; ') || '',
+      t.usage?.ops ?? 0,
+      t.usage?.costUsd ?? 0,
+      new Date(t.created_at).toLocaleDateString(),
+    ]));
+    const csv = rows.map((r) => r.map((v) => `"${v}"`).join(',')).join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    const a = document.createElement('a'); a.href = url; a.download = 'tenants.csv'; a.click();
+    URL.revokeObjectURL(url);
+  };
 
   useEffect(() => {
     let list = tenants;
@@ -81,6 +121,9 @@ export default function TenantsPage() {
         <div>
           <h1 className="text-xl font-bold text-slate-900">Tenants</h1>
           <p className="text-sm text-slate-500 mt-0.5">{tenants.length} total</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={exportCSV} className="text-xs font-medium text-slate-600 hover:text-slate-900 flex items-center gap-1.5 border border-slate-200 px-3 py-1.5 rounded-lg">Export CSV</button>
         </div>
       </div>
 
@@ -124,11 +167,39 @@ export default function TenantsPage() {
         <span className="ml-auto text-xs text-slate-400">{filtered.length} shown</span>
       </div>
 
+      {/* Bulk action bar */}
+      {selected.size > 0 && (
+        <div className="flex items-center gap-3 bg-rose-50 border border-rose-200 rounded-xl px-4 py-2 mb-3">
+          <span className="text-sm font-medium text-rose-700">{selected.size} selected</span>
+          <button onClick={() => bulkAction('suspended')} disabled={bulkActing} className="text-xs bg-red-600 text-white px-3 py-1 rounded-lg font-medium disabled:opacity-40">
+            {bulkActing ? '…' : 'Suspend All'}
+          </button>
+          <button onClick={() => bulkAction('active')} disabled={bulkActing} className="text-xs bg-emerald-600 text-white px-3 py-1 rounded-lg font-medium disabled:opacity-40">
+            {bulkActing ? '…' : 'Activate All'}
+          </button>
+          <button onClick={() => setSelected(new Set())} className="text-xs text-slate-500 hover:text-slate-700 ml-auto">Clear</button>
+        </div>
+      )}
+
       {/* Table */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr className="text-left text-xs text-slate-500 uppercase tracking-wide">
+              <th className="px-4 py-3 font-medium w-8">
+                <input
+                  type="checkbox"
+                  className="rounded border-slate-300"
+                  checked={filtered.length > 0 && filtered.every((t) => selected.has(t.id))}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setSelected(new Set(filtered.map((t) => t.id)));
+                    } else {
+                      setSelected(new Set());
+                    }
+                  }}
+                />
+              </th>
               <th className="px-4 py-3 font-medium">Name</th>
               <th className="px-4 py-3 font-medium">Plan</th>
               <th className="px-4 py-3 font-medium">Status</th>
@@ -141,11 +212,23 @@ export default function TenantsPage() {
           <tbody className="divide-y divide-slate-100">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-slate-400">No tenants found</td>
+                <td colSpan={8} className="px-4 py-8 text-center text-slate-400">No tenants found</td>
               </tr>
             ) : (
               filtered.map((t) => (
                 <tr key={t.id} className="hover:bg-slate-50 transition-colors">
+                  <td className="px-4 py-3 w-8">
+                    <input
+                      type="checkbox"
+                      className="rounded border-slate-300"
+                      checked={selected.has(t.id)}
+                      onChange={(e) => {
+                        const next = new Set(selected);
+                        if (e.target.checked) { next.add(t.id); } else { next.delete(t.id); }
+                        setSelected(next);
+                      }}
+                    />
+                  </td>
                   <td className="px-4 py-3">
                     <Link href={`/admin/tenants/${t.id}`} className="font-medium text-slate-900 hover:text-rose-700">
                       {t.name || '—'}
