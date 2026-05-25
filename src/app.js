@@ -11,6 +11,7 @@ const logger = require('./utils/logger');
 const { errorHandler } = require('./api/middleware/error-handler');
 
 // Routes
+const authRoutes = require('./api/routes/auth.routes');
 const orchestratorRoutes = require('./api/routes/orchestrator.routes');
 const contentRoutes = require('./api/routes/content.routes');
 const webhookRoutes = require('./api/routes/webhooks.routes');
@@ -48,6 +49,7 @@ app.get('/health', (req, res) => {
 });
 
 // ── Routes ───────────────────────────────────────────────────────────────────
+app.use('/api/auth', authRoutes);    // public — no auth middleware
 app.use('/api/admin', adminRoutes);
 app.use('/api/tenants', tenantsRoutes);
 app.use('/api/billing', billingRoutes);

@@ -6,6 +6,7 @@ const { getSupabaseClient } = require('../../services/database/supabase-client')
 const { setBrandConfig } = require('../../services/brand-config');
 const { setCredentials } = require('../../services/credential-store');
 const { sendWelcomeEmail } = require('../../services/transactional-email');
+const { validateSignup, decrementDomainCounter } = require('../../services/abuse-prevention');
 const logger = require('../../utils/logger');
 
 const router = express.Router();
@@ -32,6 +33,16 @@ router.post('/setup', async (req, res, next) => {
       return res.status(409).json({ error: 'Account already has a tenant. Contact support to manage multiple tenants.' });
     }
 
+    // Abuse prevention: disposable email / IP throttle / domain uniqueness
+    if (req.userEmail) {
+      const forwarded = req.headers['x-forwarded-for'];
+      const ip = (typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : null) || req.ip;
+      const abuse = await validateSignup({ email: req.userEmail, ip });
+      if (!abuse.allowed) {
+        return res.status(429).json({ error: abuse.reason });
+      }
+    }
+
     const sanitisedSlug = slug.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, SLUG_MAX_LENGTH);
     if (sanitisedSlug.length < 3) return res.status(400).json({ error: 'Slug must be at least 3 characters' });
 
@@ -43,6 +54,8 @@ router.post('/setup', async (req, res, next) => {
       .single();
 
     if (tenantErr) {
+      // Roll back domain counter so a DB error doesn't permanently block legitimate users
+      if (req.userEmail) decrementDomainCounter(req.userEmail).catch(() => {});
       if (tenantErr.code === '23505') return res.status(409).json({ error: 'Slug already taken' });
       throw tenantErr;
     }

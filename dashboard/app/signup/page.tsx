@@ -16,14 +16,33 @@ export default function SignupPage() {
     e.preventDefault();
     setError('');
     setLoading(true);
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { emailRedirectTo: `${window.location.origin}/onboarding` },
-    });
-    setLoading(false);
-    if (error) { setError(error.message); return; }
-    setDone(true);
+
+    try {
+      // Run abuse-prevention checks before creating a Supabase account
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+      const check = await fetch(`${apiUrl}/api/auth/validate-signup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      }).then((r) => r.json()) as { allowed: boolean; reason?: string };
+
+      if (!check.allowed) {
+        setError(check.reason || 'This email address cannot be used for sign-up.');
+        return;
+      }
+
+      const { error: signupError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { emailRedirectTo: `${window.location.origin}/onboarding` },
+      });
+      if (signupError) { setError(signupError.message); return; }
+      setDone(true);
+    } catch {
+      setError('Something went wrong. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   }
 
   if (done) {
