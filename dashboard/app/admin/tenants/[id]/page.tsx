@@ -21,7 +21,7 @@ interface TenantDetail {
     image_provider: string; created_at: string; updated_at: string;
   };
   subscription: { plan: string; status: string; current_period_end: string } | null;
-  connections: Array<{ platform: string; status: string; connected_at: string }>;
+  connections: Array<{ platform: string; status: string; connected_at: string; metadata?: { platformType?: string } }>;
   onboarding: Array<{ step: string; completed: boolean; completed_at: string }>;
   usageByPeriod: Record<string, { ops: number; costUsd: number }>;
   usageThisMonth: { ops: number; costUsd: number };
@@ -257,7 +257,11 @@ export default function TenantDetailPage() {
             connections.map((c) => (
               <div key={c.platform} className="bg-white rounded-xl border border-slate-200 p-4">
                 <div className="flex items-center justify-between">
-                  <span className="font-medium text-slate-800 capitalize">{c.platform}</span>
+                  <span className="font-medium text-slate-800 capitalize">
+                    {c.platform === 'ecommerce' && c.metadata?.platformType
+                      ? c.metadata.platformType
+                      : c.platform}
+                  </span>
                   <span className={`px-2 py-0.5 rounded-full text-xs ${c.status === 'connected' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{c.status}</span>
                 </div>
                 <p className="text-xs text-slate-400 mt-1">
