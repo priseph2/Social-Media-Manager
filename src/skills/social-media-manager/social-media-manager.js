@@ -12,6 +12,7 @@ const bufferApi = require('../../services/api-clients/buffer-api');
 const metaApi = require('../../services/api-clients/meta-api');
 const tiktokApi = require('../../services/api-clients/tiktok-api');
 const { SKILLS, QUEUES, PRIORITY, MODELS } = require('../../config/constants');
+const { notify } = require('../../services/notifications');
 
 const ADAPTATION_TOOL = {
   name: 'submit_platform_adaptations',
@@ -125,7 +126,7 @@ class SocialMediaManager extends BaseSkill {
   // ── Schedule Post ────────────────────────────────────────────────────────────
 
   async schedulePost(job) {
-    const { platform, content, scheduledAt, contentType = 'lifestyle', originalJobId, imageUrl, videoUrl } = job.data;
+    const { platform, content, scheduledAt, contentType = 'lifestyle', originalJobId, imageUrl, videoUrl, tenantId } = job.data;
     const text = content?.selectedContent || content?.captions?.[content.recommendedIndex]?.text || content;
 
     if (!text) throw new Error('schedulePost: no content text provided');
@@ -190,6 +191,18 @@ class SocialMediaManager extends BaseSkill {
       nativeSuccess: nativeResult?.success ?? false,
       bufferSuccess: bufferResult.success,
     });
+
+    if (tenantId) {
+      const scheduled = nativeResult?.success || bufferResult.success;
+      await notify(tenantId, {
+        type: 'post_scheduled',
+        title: scheduled ? `Post scheduled on ${platform}` : `Post scheduling issue on ${platform}`,
+        body: scheduled
+          ? `Your content has been scheduled for ${platform}${postTime ? ` at ${new Date(postTime).toUTCString()}` : ''}.`
+          : `There was an issue scheduling your post on ${platform}. Please check your connected accounts.`,
+        link: '/dashboard/content/calendar',
+      });
+    }
 
     return {
       success: true,

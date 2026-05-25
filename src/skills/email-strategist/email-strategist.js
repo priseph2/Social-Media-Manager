@@ -10,6 +10,7 @@ const { supabaseQuery } = require('../../services/database/supabase-client');
 const mailchimpApi = require('../../services/api-clients/mailchimp-api');
 const { SKILLS, QUEUES, PRIORITY, MODELS } = require('../../config/constants');
 const BRAND_GUIDELINES = require('../../config/brand-guidelines');
+const { notify } = require('../../services/notifications');
 
 const STRATEGIST_SYSTEM = `You are the Email Strategist for Cascades Luxury — responsible for all email marketing.
 
@@ -320,7 +321,7 @@ class EmailStrategist extends BaseSkill {
   // ── Send Campaign ─────────────────────────────────────────────────────────────
 
   async sendCampaign(job) {
-    const { campaignId, mailchimpCampaignId } = job.data;
+    const { campaignId, mailchimpCampaignId, tenantId } = job.data;
     this.log.info('Sending email campaign', { campaignId, jobId: job.id });
 
     const result = await mailchimpApi.sendCampaign(mailchimpCampaignId || campaignId);
@@ -330,6 +331,20 @@ class EmailStrategist extends BaseSkill {
         .update({ status: result.success ? 'sent' : 'failed', sent_at: new Date().toISOString() })
         .eq('mailchimp_id', mailchimpCampaignId || campaignId)
     );
+
+    if (tenantId) {
+      await notify(tenantId, result.success ? {
+        type: 'email_campaign_sent',
+        title: 'Email campaign sent',
+        body: `Your email campaign has been successfully delivered via Mailchimp.`,
+        link: '/dashboard/email',
+      } : {
+        type: 'email_campaign_failed',
+        title: 'Email campaign failed to send',
+        body: `Your email campaign could not be sent. Please check your Mailchimp settings and try again.`,
+        link: '/dashboard/email',
+      });
+    }
 
     return { success: result.success, campaignId, jobId: job.id };
   }

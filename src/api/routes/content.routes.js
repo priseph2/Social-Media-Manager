@@ -13,6 +13,7 @@ const { enqueue } = require('../../orchestrator/message-queue');
 const { supabaseQuery } = require('../../services/database/supabase-client');
 const { eventBus, EVENTS } = require('../../services/messaging/event-emitter');
 const { QUEUES, PRIORITY } = require('../../config/constants');
+const { notify } = require('../../services/notifications');
 
 const router = Router();
 router.use(authenticate);
@@ -196,6 +197,15 @@ router.patch('/approvals/:id/reject', async (req, res, next) => {
         })
         .eq('id', req.params.id)
     );
+
+    await notify(req.tenantId, {
+      type: 'content_rejected',
+      title: 'Content rejected',
+      body: req.body.reason
+        ? `Your content was rejected: ${req.body.reason}`
+        : 'A reviewer rejected your content. Please revise and resubmit.',
+      link: '/dashboard/content/approvals',
+    });
 
     res.json({ ok: true });
   } catch (err) { next(err); }

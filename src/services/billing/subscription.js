@@ -116,6 +116,21 @@ async function hasOpsRemaining(tenantId) {
   return remaining > 0;
 }
 
+/**
+ * Returns detailed ops usage status — remaining, limit, and percent used.
+ */
+async function getOpsStatus(tenantId) {
+  const plan = await getEffectivePlan(tenantId);
+  if (hasUnlimitedOps(plan)) {
+    return { remaining: Infinity, limit: null, percentUsed: 0, unlimited: true };
+  }
+  const { monthlyAiOps: limit } = getPlan(plan).limits;
+  const { totalOps } = await getMonthlyUsage(tenantId);
+  const remaining = Math.max(0, limit - totalOps);
+  const percentUsed = limit > 0 ? Math.round((totalOps / limit) * 100) : 0;
+  return { remaining, limit, percentUsed, unlimited: false };
+}
+
 // ── Subscription mutations ──────────────────────────────────────────────────
 
 /**
@@ -205,6 +220,7 @@ module.exports = {
   checkFeature,
   getRemainingOps,
   hasOpsRemaining,
+  getOpsStatus,
   upsertSubscription,
   schedulePlanChange,
   cancelAtPeriodEnd,

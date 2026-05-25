@@ -1,6 +1,6 @@
 'use strict';
 
-const { checkFeature, hasOpsRemaining, getEffectivePlan, getSubscription } = require('../../services/billing/subscription');
+const { checkFeature, getOpsStatus, getEffectivePlan, getSubscription } = require('../../services/billing/subscription');
 const { notify } = require('../../services/notifications');
 const { getRedisClient } = require('../../services/database/redis-client');
 const logger = require('../../utils/logger');
@@ -69,8 +69,9 @@ async function checkOpsLimit(req, res, next) {
     return res.status(401).json({ error: 'Authentication required' });
   }
   try {
-    const remaining = await hasOpsRemaining(req.tenantId);
-    if (!remaining) {
+    const opsStatus = await getOpsStatus(req.tenantId);
+
+    if (!opsStatus.unlimited && opsStatus.remaining <= 0) {
       const plan = await getEffectivePlan(req.tenantId);
 
       // Notify once per 24h per tenant to avoid spamming on every blocked request
@@ -95,6 +96,25 @@ async function checkOpsLimit(req, res, next) {
         upgradeRequired: true,
       });
     }
+
+    // 80% usage warning — fire-and-forget, never blocks the request
+    if (!opsStatus.unlimited && opsStatus.percentUsed >= 80 && opsStatus.remaining > 0) {
+      try {
+        const redis = getRedisClient();
+        const dedupKey = `notif:ops_warn:${req.tenantId}`;
+        const shouldNotify = redis ? !(await redis.get(dedupKey)) : true;
+        if (shouldNotify) {
+          if (redis) await redis.set(dedupKey, '1', 'EX', 86400);
+          await notify(req.tenantId, {
+            type: 'ops_warning',
+            title: 'AI operations limit approaching',
+            body: `You've used ${opsStatus.percentUsed}% of your monthly AI operations (${opsStatus.limit - opsStatus.remaining} of ${opsStatus.limit} used). Upgrade before you run out.`,
+            link: '/dashboard/settings/billing',
+          });
+        }
+      } catch { /* notification failure must never block the request */ }
+    }
+
     next();
   } catch (err) {
     logger.warn('plan-gate checkOpsLimit error', { error: err.message });

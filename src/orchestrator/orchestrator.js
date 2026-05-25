@@ -169,6 +169,14 @@ class Orchestrator {
     // Sales spike → trigger analytics + email
     eventBus.subscribe(EVENTS.SALES_SPIKE, SKILLS.ORCHESTRATOR, async (data) => {
       await enqueue(QUEUES.ANALYTICS, 'analyse-sales-spike', data, { priority: PRIORITY.HIGH });
+      if (data.tenantId) {
+        await notify(data.tenantId, {
+          type: 'sales_spike',
+          title: 'Sales spike detected',
+          body: `Unusual sales activity detected from ${data.source || 'your store'}. AI is analysing the cause now.`,
+          link: '/dashboard/analytics',
+        });
+      }
     });
   }
 

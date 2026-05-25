@@ -13,6 +13,7 @@ const { supabaseQuery } = require('../../services/database/supabase-client');
 const Metrics = require('../../models/metrics.model');
 const Content = require('../../models/content.model');
 const { SKILLS, MODELS } = require('../../config/constants');
+const { notify } = require('../../services/notifications');
 
 /**
  * SKILL 5: Analytics Monitor — Phase 4 (Fully Implemented)
@@ -106,6 +107,15 @@ class AnalyticsMonitor extends BaseSkill {
       anomalies: anomalies.length,
       channels: Object.keys(aggregated).filter((k) => !['date', 'aggregatedAt', 'totals'].includes(k)),
     });
+
+    if (anomalies.length && tenantId) {
+      await notify(tenantId, {
+        type: 'anomaly_detected',
+        title: `${anomalies.length} metric anomal${anomalies.length === 1 ? 'y' : 'ies'} detected`,
+        body: `Unusual patterns were found in today's analytics data. Review your dashboard for details.`,
+        link: '/dashboard/analytics',
+      }).catch(() => {});
+    }
 
     return {
       success: true,
@@ -245,6 +255,15 @@ class AnalyticsMonitor extends BaseSkill {
         overall_score: structured?.overallScore?.score || null,
       }, { onConflict: 'tenant_id,period' })
     ).catch((err) => this.log.warn('Failed to persist monthly report', { error: err.message }));
+
+    if (tenantId) {
+      await notify(tenantId, {
+        type: 'report_ready',
+        title: 'Monthly performance report ready',
+        body: `Your ${reportPeriod} performance report is ready${structured?.overallScore?.score != null ? ` — overall score ${structured.overallScore.score}/100` : ''}.`,
+        link: '/dashboard/analytics',
+      }).catch(() => {});
+    }
 
     return {
       success: true,
