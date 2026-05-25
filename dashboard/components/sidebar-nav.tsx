@@ -7,6 +7,7 @@ const settingsNav = [
   { href: '/dashboard/settings/brand', label: 'Brand' },
   { href: '/dashboard/settings/integrations', label: 'Integrations' },
   { href: '/dashboard/settings/billing', label: 'Billing' },
+  { href: '/dashboard/settings/security', label: 'Security' },
 ];
 
 function NavLink({ href, label, pathname, badge }: { href: string; label: string; pathname: string; badge?: number }) {
@@ -37,6 +38,7 @@ export function SidebarNav({ pendingApprovals = 0 }: { pendingApprovals?: number
     { href: '/dashboard', label: 'Overview' },
     { href: '/dashboard/content', label: 'Content' },
     { href: '/dashboard/content/approvals', label: 'Approvals', badge: pendingApprovals },
+    { href: '/dashboard/content/calendar', label: 'Calendar' },
     { href: '/dashboard/escalations', label: 'Escalations' },
     { href: '/dashboard/analytics', label: 'Analytics' },
   ];
