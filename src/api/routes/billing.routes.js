@@ -125,6 +125,15 @@ router.post('/checkout', authenticate, async (req, res) => {
     const amountKobo = currency === 'NGN' ? planConfig.priceNGN * 100 : planConfig.priceUSD * 100;
     const callbackUrl = `${process.env.DASHBOARD_URL || 'http://localhost:3001'}/dashboard/settings/billing?payment=verify`;
 
+    logger.info('Checkout: calling Paystack initializeTransaction', {
+      plan,
+      currency,
+      amountKobo,
+      planCode: planConfig.paystackPlanCode,
+      keyMode: paystack.secretKey?.startsWith('sk_live') ? 'live' : 'test',
+      callbackUrl,
+    });
+
     const txData = await paystack.initializeTransaction({
       email,
       amount: amountKobo,

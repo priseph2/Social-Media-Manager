@@ -31,8 +31,23 @@ class PaystackClient {
     const { default: fetch } = await import('node-fetch').catch(() => ({ default: globalThis.fetch }));
     const opts = { method, headers: this._headers };
     if (body) opts.body = JSON.stringify(body);
+
+    logger.debug(`Paystack → ${method} ${BASE_URL}${path}`, {
+      keyPrefix: this.secretKey?.slice(0, 12) + '…',
+      body: body ? { ...body, email: body.email ? '***' : undefined } : null,
+    });
+
     const res = await fetch(`${BASE_URL}${path}`, opts);
-    const json = await res.json();
+    let json;
+    try {
+      json = await res.json();
+    } catch {
+      const text = await res.text().catch(() => '(unreadable)');
+      throw new Error(`Paystack ${method} ${path} → ${res.status}: non-JSON response: ${text.slice(0, 200)}`);
+    }
+
+    logger.debug(`Paystack ← ${res.status}`, { status: json.status, message: json.message });
+
     if (!res.ok || !json.status) {
       throw new Error(`Paystack ${method} ${path} → ${res.status}: ${json.message || JSON.stringify(json)}`);
     }
