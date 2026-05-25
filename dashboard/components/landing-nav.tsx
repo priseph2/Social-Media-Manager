@@ -11,7 +11,7 @@ const NAV_LINKS = [
   { label: 'Blog', href: '#blog' },
 ];
 
-export function LandingNav() {
+export function LandingNav({ isLoggedIn = false }: { isLoggedIn?: boolean }) {
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
 
@@ -49,18 +49,29 @@ export function LandingNav() {
           </nav>
 
           <div className="hidden md:flex items-center gap-3">
-            <Link
-              href="/login"
-              className="text-slate-300 hover:text-white text-sm font-medium transition-colors px-3 py-2"
-            >
-              Sign in
-            </Link>
-            <Link
-              href="/signup"
-              className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
-            >
-              Get Started Free
-            </Link>
+            {isLoggedIn ? (
+              <Link
+                href="/dashboard"
+                className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+              >
+                Dashboard →
+              </Link>
+            ) : (
+              <>
+                <Link
+                  href="/login"
+                  className="text-slate-300 hover:text-white text-sm font-medium transition-colors px-3 py-2"
+                >
+                  Sign in
+                </Link>
+                <Link
+                  href="/signup"
+                  className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+                >
+                  Get Started Free
+                </Link>
+              </>
+            )}
           </div>
 
           <button
@@ -95,20 +106,32 @@ export function LandingNav() {
               ))}
             </nav>
             <div className="flex flex-col gap-2 pt-4 border-t border-slate-700">
-              <Link
-                href="/login"
-                onClick={() => setOpen(false)}
-                className="text-center text-slate-300 hover:text-white text-sm font-medium py-2.5 transition-colors"
-              >
-                Sign in
-              </Link>
-              <Link
-                href="/signup"
-                onClick={() => setOpen(false)}
-                className="text-center bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold px-4 py-3 rounded-xl transition-colors"
-              >
-                Get Started Free
-              </Link>
+              {isLoggedIn ? (
+                <Link
+                  href="/dashboard"
+                  onClick={() => setOpen(false)}
+                  className="text-center bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold px-4 py-3 rounded-xl transition-colors"
+                >
+                  Dashboard →
+                </Link>
+              ) : (
+                <>
+                  <Link
+                    href="/login"
+                    onClick={() => setOpen(false)}
+                    className="text-center text-slate-300 hover:text-white text-sm font-medium py-2.5 transition-colors"
+                  >
+                    Sign in
+                  </Link>
+                  <Link
+                    href="/signup"
+                    onClick={() => setOpen(false)}
+                    className="text-center bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold px-4 py-3 rounded-xl transition-colors"
+                  >
+                    Get Started Free
+                  </Link>
+                </>
+              )}
             </div>
           </div>
         )}

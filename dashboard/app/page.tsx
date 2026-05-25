@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { LandingNav } from '@/components/landing-nav';
@@ -135,11 +134,11 @@ export default async function LandingPage() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (user) redirect('/dashboard');
+  const isLoggedIn = !!user;
 
   return (
     <div className="bg-slate-950 text-white">
-      <LandingNav />
+      <LandingNav isLoggedIn={isLoggedIn} />
 
       {/* ── Hero ────────────────────────────────────────────────────────────── */}
       <section className="relative min-h-screen flex items-center overflow-hidden pt-16">
