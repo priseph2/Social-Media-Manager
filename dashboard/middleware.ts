@@ -24,10 +24,12 @@ export async function middleware(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   const { pathname } = request.nextUrl;
 
-  const isPublicPath = pathname.startsWith('/login') || pathname.startsWith('/signup')
-    || pathname.startsWith('/forgot-password') || pathname.startsWith('/reset-password');
+  const isPublicPath = pathname === '/'
+    || pathname.startsWith('/login') || pathname.startsWith('/signup')
+    || pathname.startsWith('/forgot-password') || pathname.startsWith('/reset-password')
+    || pathname.startsWith('/blog');
 
-  // Unauthenticated users may only access public auth pages
+  // Unauthenticated users may only access public pages
   if (!user && !isPublicPath) {
     return NextResponse.redirect(new URL('/login', request.url));
   }

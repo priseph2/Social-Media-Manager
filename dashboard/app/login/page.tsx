@@ -27,6 +27,14 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
       <div className="w-full max-w-md">
+        <div className="mb-6 text-center">
+          <Link href="/" className="inline-flex items-center gap-2 group">
+            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
+              <span className="text-white font-black text-sm">A</span>
+            </div>
+            <span className="text-slate-800 font-bold text-lg tracking-tight group-hover:text-indigo-600 transition-colors">Aria</span>
+          </Link>
+        </div>
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
           <h1 className="text-2xl font-bold text-slate-900 mb-1">Welcome back</h1>
           <p className="text-slate-500 mb-8 text-sm">Sign in to your account</p>
@@ -72,6 +80,11 @@ export default function LoginPage() {
             No account?{' '}
             <Link href="/signup" className="text-indigo-600 font-medium hover:underline">
               Create one
+            </Link>
+          </p>
+          <p className="mt-5 text-center">
+            <Link href="/" className="text-xs text-slate-400 hover:text-slate-600 transition-colors">
+              ← Back to homepage
             </Link>
           </p>
         </div>
