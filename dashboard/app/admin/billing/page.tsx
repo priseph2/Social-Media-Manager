@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
 
+
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
 interface BillingSummary {
@@ -51,9 +52,12 @@ function MetricCard({ label, value, sub, highlight = false }: {
 }
 
 export default function BillingPage() {
+  const [activeTab, setActiveTab] = useState<'overview' | 'churn' | 'dunning'>('overview');
   const [data, setData] = useState<BillingSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [churn, setChurn] = useState<Array<{ month: string; gained: number; lost: number; net: number }>>([]);
+  const [dunning, setDunning] = useState<Array<{ tenantId: string; tenantName: string; plan: string; status: string; count: number; lastFailedAt: string; amount: number }>>([]);
 
   const load = useCallback(async () => {
     const { data: { session } } = await createClient().auth.getSession();
@@ -65,6 +69,20 @@ export default function BillingPage() {
     else setError('Failed to load billing data');
     setLoading(false);
   }, []);
+
+  const loadChurn = async () => {
+    const { data: { session } } = await createClient().auth.getSession();
+    if (!session) return;
+    const res = await fetch(`${API}/api/admin/billing/churn`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+    if (res.ok) setChurn((await res.json()).months);
+  };
+
+  const loadDunning = async () => {
+    const { data: { session } } = await createClient().auth.getSession();
+    if (!session) return;
+    const res = await fetch(`${API}/api/admin/billing/dunning`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+    if (res.ok) setDunning((await res.json()).dunning);
+  };
 
   useEffect(() => { load(); }, [load]);
 
@@ -99,6 +117,20 @@ export default function BillingPage() {
         </button>
       </div>
 
+      {/* Tab bar */}
+      <div className="flex gap-1 bg-slate-100 p-1 rounded-xl mb-6 w-fit">
+        {(['overview', 'churn', 'dunning'] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => { setActiveTab(t); if (t === 'churn') loadChurn(); if (t === 'dunning') loadDunning(); }}
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all capitalize ${activeTab === t ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            {t === 'churn' ? 'Churn Analysis' : t === 'dunning' ? 'Dunning' : 'Overview'}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'overview' && (<>
       {/* KPI row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <MetricCard label="Monthly Recurring Revenue" value={`$${data.mrrUsd.toLocaleString()}`} sub="USD · active paid plans" highlight />
@@ -250,6 +282,90 @@ export default function BillingPage() {
       <p className="text-xs text-slate-400 mt-4">
         Revenue figures are estimates based on active subscription plans. Verify against Paystack dashboard for authoritative numbers.
       </p>
+      </>)}
+
+      {activeTab === 'churn' && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-xl border border-slate-200 p-5">
+            <h2 className="text-sm font-semibold text-slate-700 mb-4">Subscription Growth vs Churn (Last 12 Months)</h2>
+            {churn.length === 0 ? (
+              <p className="text-sm text-slate-400 py-8 text-center">No billing event data yet.</p>
+            ) : (
+              <div className="space-y-3">
+                {churn.map((row) => (
+                  <div key={row.month} className="grid grid-cols-5 items-center gap-3 text-sm">
+                    <span className="text-slate-600 font-medium">{row.month}</span>
+                    <div className="col-span-2 flex items-center gap-2">
+                      <span className="text-xs text-emerald-600 w-16 text-right">+{row.gained} new</span>
+                      <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden relative">
+                        <div className="absolute left-0 h-full bg-emerald-400 rounded-full" style={{ width: `${Math.min(100, (row.gained / Math.max(row.gained, row.lost, 1)) * 100)}%` }} />
+                      </div>
+                    </div>
+                    <div className="col-span-2 flex items-center gap-2">
+                      <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden relative">
+                        <div className="absolute left-0 h-full bg-red-400 rounded-full" style={{ width: `${Math.min(100, (row.lost / Math.max(row.gained, row.lost, 1)) * 100)}%` }} />
+                      </div>
+                      <span className="text-xs text-red-600 w-16">-{row.lost} lost</span>
+                      <span className={`text-xs font-bold w-12 text-right ${row.net >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{row.net >= 0 ? '+' : ''}{row.net}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'dunning' && (
+        <div className="bg-white rounded-xl border border-slate-200 p-5">
+          <h2 className="text-sm font-semibold text-slate-700 mb-4">Tenants with Failed Payments</h2>
+          {dunning.length === 0 ? (
+            <div className="text-center py-8">
+              <p className="text-slate-400 text-sm">No failed payments recorded.</p>
+              <p className="text-slate-400 text-xs mt-1">Payment failures are tracked via Paystack webhooks.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[600px]">
+                <thead>
+                  <tr className="text-left text-xs text-slate-400 border-b border-slate-100">
+                    <th className="pb-2 font-medium">Tenant</th>
+                    <th className="pb-2 font-medium">Plan</th>
+                    <th className="pb-2 font-medium">Status</th>
+                    <th className="pb-2 font-medium text-right">Failures</th>
+                    <th className="pb-2 font-medium text-right">Last Failed</th>
+                    <th className="pb-2 font-medium text-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {dunning.map((d) => (
+                    <tr key={d.tenantId} className="hover:bg-slate-50">
+                      <td className="py-2.5">
+                        <a href={`/admin/tenants/${d.tenantId}`} className="text-indigo-600 hover:text-indigo-800 font-medium">{d.tenantName}</a>
+                      </td>
+                      <td className="py-2.5">
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium">{d.plan}</span>
+                      </td>
+                      <td className="py-2.5">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${d.status === 'active' ? 'bg-emerald-100 text-emerald-700' : d.status === 'suspended' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>{d.status}</span>
+                      </td>
+                      <td className="py-2.5 text-right">
+                        <span className={`font-bold ${d.count >= 3 ? 'text-red-700' : 'text-amber-700'}`}>{d.count}</span>
+                      </td>
+                      <td className="py-2.5 text-right text-slate-400 text-xs">
+                        {new Date(d.lastFailedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                      </td>
+                      <td className="py-2.5 text-right text-slate-600 text-xs">
+                        {d.amount ? `₦${Number(d.amount).toLocaleString()}` : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
