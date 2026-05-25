@@ -5,6 +5,8 @@ const { enqueue, registerWorker } = require('./message-queue');
 const { eventBus, EVENTS } = require('../services/messaging/event-emitter');
 const { QUEUES, SKILLS, PRIORITY } = require('../config/constants');
 
+const { notify } = require('../services/notifications');
+
 // Skill imports — each skill registers itself as a BullMQ worker
 const BrandGuardian = require('../skills/brand-guardian/brand-guardian');
 const ContentGenerator = require('../skills/content-generator/content-generator');
@@ -96,6 +98,12 @@ class Orchestrator {
     eventBus.subscribe(EVENTS.NEGATIVE_SENTIMENT, SKILLS.ORCHESTRATOR, async (data) => {
       this.log.warn('Negative sentiment detected — routing for urgent response', data);
       await enqueue(QUEUES.CUSTOMER_SERVICE, 'handle-inquiry', data, { priority: PRIORITY.URGENT });
+      await notify(data.tenantId, {
+        type: 'negative_sentiment',
+        title: 'Negative sentiment detected',
+        body: `A customer message on ${data.channel || 'your channel'} was flagged as negative. Routing to customer service.`,
+        link: '/dashboard/escalations',
+      });
       await this._notifyHumanManager({ type: EVENTS.NEGATIVE_SENTIMENT, ...data });
     });
 
@@ -113,6 +121,17 @@ class Orchestrator {
         } else {
           this.log.warn('Email campaign approved but no Mailchimp draft — manual send required', { emailCampaignId: data.emailCampaignId });
         }
+        // Notify tenant: content approved and queued
+        if (data.tenantId) {
+          await notify(data.tenantId, {
+            type: 'content_approved',
+            title: 'Content approved and scheduled',
+            body: data.humanApproved
+              ? 'An admin approved your content. It has been queued for publishing.'
+              : 'Your content passed brand review and has been queued for publishing.',
+            link: '/dashboard/content',
+          });
+        }
         return;
       }
 
@@ -123,10 +142,27 @@ class Orchestrator {
         jobs.push(enqueue(QUEUES.IMAGE_GENERATION, 'generate-image', data, { priority: PRIORITY.LOW }));
       }
       await Promise.all(jobs);
+      // Notify tenant: content approved and queued
+      if (data.tenantId) {
+        await notify(data.tenantId, {
+          type: 'content_approved',
+          title: 'Content approved and scheduled',
+          body: data.humanApproved
+            ? 'An admin approved your content. It has been queued for publishing.'
+            : 'Your content passed brand review and has been queued for publishing.',
+          link: '/dashboard/content',
+        });
+      }
     });
 
     // Any escalation → notify human manager
     eventBus.subscribe(EVENTS.ESCALATION_REQUIRED, SKILLS.ORCHESTRATOR, async (data) => {
+      await notify(data.tenantId, {
+        type: 'escalation',
+        title: 'Action required: escalation',
+        body: data.reason || `A ${data.type || 'task'} requires your attention.`,
+        link: '/dashboard/escalations',
+      });
       await this._notifyHumanManager(data);
     });
 

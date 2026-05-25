@@ -12,6 +12,7 @@ const { getPlan, PLANS } = require('../../config/plans');
 const { getSupabaseClient } = require('../../services/database/supabase-client');
 const { sendBillingConfirmationEmail } = require('../../services/transactional-email');
 const logger = require('../../utils/logger');
+const { notify } = require('../../services/notifications');
 
 const router = Router();
 
@@ -235,6 +236,12 @@ router.put('/plan', authenticate, async (req, res) => {
 
     await schedulePlanChange(req.tenantId, plan);
     await logBillingEvent(req.tenantId, 'plan.change_scheduled', { pendingPlan: plan });
+    await notify(req.tenantId, {
+      type: 'plan_change',
+      title: `Plan change scheduled to ${PLANS[plan]?.name || plan}`,
+      body: 'Your plan change will take effect at the end of your current billing period.',
+      link: '/dashboard/settings/billing',
+    });
     res.json({ success: true, pendingPlan: plan, message: 'Plan change will take effect at the end of your current billing period.' });
   } catch (err) {
     res.status(500).json({ error: 'Failed to schedule plan change' });
@@ -257,6 +264,12 @@ router.delete('/subscription', authenticate, async (req, res) => {
 
     await cancelAtPeriodEnd(req.tenantId);
     await logBillingEvent(req.tenantId, 'subscription.cancel_scheduled', {});
+    await notify(req.tenantId, {
+      type: 'billing_cancelled',
+      title: 'Subscription cancellation scheduled',
+      body: 'Your subscription will end at the close of your current billing period. You can reactivate any time.',
+      link: '/dashboard/settings/billing',
+    });
 
     res.json({
       success: true,
@@ -342,6 +355,12 @@ async function handlePaystackEvent(event, data, tenantId) {
           amountFormatted,
         }).catch(() => {});
       }
+      await notify(tenantId, {
+        type: 'billing_success',
+        title: `Payment received — ${planConfig.name} plan activated`,
+        body: `Your ${planConfig.name} plan is now active. Thank you for your payment.`,
+        link: '/dashboard/settings/billing',
+      });
       break;
     }
 
@@ -355,6 +374,12 @@ async function handlePaystackEvent(event, data, tenantId) {
         current_period_end: data.next_payment_date,
       });
       await logBillingEvent(tenantId, 'subscription.created', data);
+      await notify(tenantId, {
+        type: 'billing_success',
+        title: 'Subscription created',
+        body: 'Your subscription has been set up successfully.',
+        link: '/dashboard/settings/billing',
+      });
       break;
     }
 
@@ -363,6 +388,12 @@ async function handlePaystackEvent(event, data, tenantId) {
       if (!tenantId) return;
       await upsertSubscription(tenantId, { status: 'cancelled', cancelled_at: new Date().toISOString() });
       await logBillingEvent(tenantId, 'subscription.cancelled', data);
+      await notify(tenantId, {
+        type: 'billing_cancelled',
+        title: 'Subscription cancelled',
+        body: 'Your subscription has been cancelled. You can resubscribe any time from the billing page.',
+        link: '/dashboard/settings/billing',
+      });
       break;
     }
 
@@ -370,6 +401,12 @@ async function handlePaystackEvent(event, data, tenantId) {
       if (!tenantId) return;
       await upsertSubscription(tenantId, { status: 'past_due' });
       await logBillingEvent(tenantId, 'payment.failed', data);
+      await notify(tenantId, {
+        type: 'payment_failed',
+        title: 'Payment failed',
+        body: 'We were unable to process your payment. Please update your payment method to avoid service interruption.',
+        link: '/dashboard/settings/billing',
+      });
       break;
     }
 
@@ -384,6 +421,12 @@ async function handlePaystackEvent(event, data, tenantId) {
       }
       await upsertSubscription(tenantId, updates);
       await logBillingEvent(tenantId, 'payment.succeeded.renewal', { amount: data.amount });
+      await notify(tenantId, {
+        type: 'billing_success',
+        title: 'Subscription renewed',
+        body: `Your subscription has been renewed. Next billing date: ${data.next_payment_date ? new Date(data.next_payment_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : 'see billing page'}.`,
+        link: '/dashboard/settings/billing',
+      });
       break;
     }
 

@@ -1,6 +1,8 @@
 'use strict';
 
 const { checkFeature, hasOpsRemaining, getEffectivePlan, getSubscription } = require('../../services/billing/subscription');
+const { notify } = require('../../services/notifications');
+const { getRedisClient } = require('../../services/database/redis-client');
 const logger = require('../../utils/logger');
 
 /**
@@ -70,6 +72,23 @@ async function checkOpsLimit(req, res, next) {
     const remaining = await hasOpsRemaining(req.tenantId);
     if (!remaining) {
       const plan = await getEffectivePlan(req.tenantId);
+
+      // Notify once per 24h per tenant to avoid spamming on every blocked request
+      try {
+        const redis = getRedisClient();
+        const dedupKey = `notif:ops_limit:${req.tenantId}`;
+        const shouldNotify = redis ? !(await redis.get(dedupKey)) : true;
+        if (shouldNotify) {
+          if (redis) await redis.set(dedupKey, '1', 'EX', 86400);
+          await notify(req.tenantId, {
+            type: 'ops_limit',
+            title: 'Monthly AI operations limit reached',
+            body: `You have used all your AI operations for this billing period on the ${plan} plan. Upgrade to continue using AI features.`,
+            link: '/dashboard/settings/billing',
+          });
+        }
+      } catch { /* notification failure must never block the 402 response */ }
+
       return res.status(402).json({
         error: 'Monthly AI operations limit reached. Upgrade your plan or wait for the next billing cycle.',
         currentPlan: plan,

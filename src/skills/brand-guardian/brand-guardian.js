@@ -11,6 +11,7 @@ const { getBrandConfig } = require('../../services/brand-config');
 const Content = require('../../models/content.model');
 const { isMongoAvailable } = require('../../services/database/mongodb-client');
 const { supabaseQuery } = require('../../services/database/supabase-client');
+const { notify } = require('../../services/notifications');
 
 function buildSystemPrompt(brandConfig) {
   const name = brandConfig?.identity?.name || 'the brand';
@@ -238,6 +239,12 @@ class BrandGuardian extends BaseSkill {
       );
       eventBus.publish(EVENTS.CONTENT_PENDING_APPROVAL, {
         tenantId, jobId: job.id, platform, contentType: type, brandScore: result.qualityScore,
+      });
+      await notify(tenantId, {
+        type: 'approval_pending',
+        title: 'Content needs your review',
+        body: `A ${type || 'content'} item for ${platform || 'your platform'} scored ${result.qualityScore}/100 and requires manual approval before publishing.`,
+        link: '/dashboard/content/approvals',
       });
       this.log.info('Content queued for human approval', { jobId: job.id, tenantId, platform });
     } catch (err) {
