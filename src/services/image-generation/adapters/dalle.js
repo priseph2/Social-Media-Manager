@@ -32,7 +32,8 @@ class DalleAdapter extends ImageAdapter {
         n: 1,
         size,
         quality: this.quality,
-        response_format: 'b64_json',
+        // response_format omitted — newer API versions removed b64_json support;
+        // we receive a URL and download the bytes instead.
       }),
     });
 
@@ -42,11 +43,15 @@ class DalleAdapter extends ImageAdapter {
     }
 
     const json = await res.json();
-    const b64 = json?.data?.[0]?.b64_json;
-    if (!b64) throw new Error('DALL-E 3 returned no image data');
+    const imageUrl = json?.data?.[0]?.url;
+    if (!imageUrl) throw new Error('DALL-E 3 returned no image URL');
+
+    const imgRes = await fetch(imageUrl);
+    if (!imgRes.ok) throw new Error(`DALL-E 3 image download failed: ${imgRes.status}`);
+    const arrayBuf = await imgRes.arrayBuffer();
 
     return {
-      imageBuffer: Buffer.from(b64, 'base64'),
+      imageBuffer: Buffer.from(arrayBuf),
       model: this.providerKey,
       costUsd: COST_PER_IMAGE[this.providerKey] ?? 0.04,
     };

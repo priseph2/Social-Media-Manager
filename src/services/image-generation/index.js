@@ -2,28 +2,35 @@
 
 const { getSupabaseClient } = require('../database/supabase-client');
 const Imagen4Adapter = require('./adapters/imagen4');
+const GeminiImageAdapter = require('./adapters/gemini-image');
 const DalleAdapter = require('./adapters/dalle');
 const CanvaAdapter = require('./adapters/canva');
 const logger = require('../../utils/logger');
 
 // Provider key → adapter factory
 const ADAPTERS = {
-  'imagen4-fast':     (tenantId) => new Imagen4Adapter('imagen4-fast'),
-  'imagen4-standard': (tenantId) => new Imagen4Adapter('imagen4-standard'),
-  'dalle3-standard':  (tenantId) => new DalleAdapter('dalle3-standard'),
-  'dalle3-hd':        (tenantId) => new DalleAdapter('dalle3-hd'),
+  'gemini-image':     () => new GeminiImageAdapter(),       // free Google AI Studio tier
+  'imagen4-fast':     () => new Imagen4Adapter('imagen4-fast'),    // paid Google billing
+  'imagen4-standard': () => new Imagen4Adapter('imagen4-standard'),
+  'dalle3-standard':  () => new DalleAdapter('dalle3-standard'),
+  'dalle3-hd':        () => new DalleAdapter('dalle3-hd'),
   'canva':            (tenantId) => new CanvaAdapter(tenantId),
 };
 
-// Auto-fallback order (excludes Canva — it needs tenant-specific credentials
-// and is only used when explicitly set by an admin for that tenant).
-const AUTO_FALLBACK_ORDER = ['imagen4-fast', 'imagen4-standard', 'dalle3-standard', 'dalle3-hd'];
+// Auto-fallback order (excludes Canva — needs per-tenant credentials).
+// gemini-image first: works on free Google AI Studio key.
+// imagen4 variants next: require paid Google billing.
+// dalle3 variants last: require OpenAI key.
+const AUTO_FALLBACK_ORDER = [
+  'gemini-image',
+  'imagen4-fast', 'imagen4-standard',
+  'dalle3-standard', 'dalle3-hd',
+];
 
 // Returns true if the required API key for this provider is present in env.
-// Canva uses per-tenant credentials checked at generate() time, so we always
-// treat it as "configured" here and let generate() throw if creds are missing.
+// Canva uses per-tenant credentials checked at generate() time.
 function isProviderKeyConfigured(providerKey) {
-  if (providerKey === 'imagen4-fast' || providerKey === 'imagen4-standard') {
+  if (providerKey === 'gemini-image' || providerKey === 'imagen4-fast' || providerKey === 'imagen4-standard') {
     return !!process.env.GOOGLE_API_KEY;
   }
   if (providerKey === 'dalle3-standard' || providerKey === 'dalle3-hd') {
@@ -105,14 +112,14 @@ function _resolveAdapter(configuredProvider, tenantId) {
 
   // 4. Nothing configured — return a no-op adapter that throws a clear, actionable error
   logger.error(
-    '[ImageGen] No image generation provider configured. Set GOOGLE_API_KEY (Imagen 4) or OPENAI_API_KEY (DALL-E 3).',
+    '[ImageGen] No image generation provider configured. Set GOOGLE_API_KEY (Gemini/Imagen) or OPENAI_API_KEY (DALL-E 3).',
     { tenantId }
   );
   return {
     async generate() {
       throw new Error(
         'No image generation provider is configured. ' +
-        'Set GOOGLE_API_KEY (for Imagen 4) or OPENAI_API_KEY (for DALL-E 3) in your environment variables.'
+        'Set GOOGLE_API_KEY (for Gemini / Imagen 4) or OPENAI_API_KEY (for DALL-E 3) in your environment variables.'
       );
     },
   };

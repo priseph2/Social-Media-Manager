@@ -8,8 +8,9 @@ import { useParams } from 'next/navigation';
 import { API_URL as API, timedFetch } from '@/lib/api';
 
 const IMAGE_PROVIDERS = [
-  { value: 'imagen4-fast',     label: 'Imagen 4 Fast ($0.02/img)' },
-  { value: 'imagen4-standard', label: 'Imagen 4 Standard ($0.04/img)' },
+  { value: 'gemini-image',     label: 'Gemini Image (free tier, GOOGLE_API_KEY)' },
+  { value: 'imagen4-fast',     label: 'Imagen 4 Fast ($0.02/img, paid billing)' },
+  { value: 'imagen4-standard', label: 'Imagen 4 Standard ($0.04/img, paid billing)' },
   { value: 'dalle3-standard',  label: 'DALL-E 3 Standard ($0.04/img)' },
   { value: 'dalle3-hd',        label: 'DALL-E 3 HD ($0.08/img)' },
   { value: 'canva',            label: 'Canva (tenant credentials)' },
@@ -216,8 +217,11 @@ export default function TenantDetailPage() {
                 <option key={p.value} value={p.value}>{p.label}</option>
               ))}
             </select>
+            {editImageProvider === 'gemini-image' && (
+              <p className="text-xs text-slate-400 mt-1">Requires <code className="font-mono">GOOGLE_API_KEY</code> — works on the free Google AI Studio tier.</p>
+            )}
             {(editImageProvider === 'imagen4-fast' || editImageProvider === 'imagen4-standard') && (
-              <p className="text-xs text-slate-400 mt-1">Requires <code className="font-mono">GOOGLE_API_KEY</code> env var on the server.</p>
+              <p className="text-xs text-slate-400 mt-1">Requires <code className="font-mono">GOOGLE_API_KEY</code> + paid Google AI Studio billing enabled.</p>
             )}
             {(editImageProvider === 'dalle3-standard' || editImageProvider === 'dalle3-hd') && (
               <p className="text-xs text-slate-400 mt-1">Requires <code className="font-mono">OPENAI_API_KEY</code> env var on the server.</p>
