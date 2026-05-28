@@ -24,7 +24,8 @@ const SERVICE_META: Record<string, { label: string; category: string; descriptio
   buffer: { label: 'Buffer', category: 'Social', description: 'Social post scheduling' },
   mailchimp: { label: 'Mailchimp', category: 'Email', description: 'Email campaign delivery' },
   paystack: { label: 'Paystack', category: 'Payments', description: 'Subscription billing' },
-  openai: { label: 'OpenAI', category: 'AI', description: 'Fallback / embeddings' },
+  openai: { label: 'OpenAI (DALL-E 3)', category: 'AI', description: 'Image generation — dalle3-standard / dalle3-hd' },
+  google: { label: 'Google (Imagen 4)', category: 'AI', description: 'Image generation — imagen4-fast / imagen4-standard (default)' },
 };
 
 const STATUS_CONFIG: Record<string, { label: string; dotColor: string; bgColor: string; textColor: string }> = {

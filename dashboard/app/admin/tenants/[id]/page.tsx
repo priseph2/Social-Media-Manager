@@ -216,6 +216,15 @@ export default function TenantDetailPage() {
                 <option key={p.value} value={p.value}>{p.label}</option>
               ))}
             </select>
+            {(editImageProvider === 'imagen4-fast' || editImageProvider === 'imagen4-standard') && (
+              <p className="text-xs text-slate-400 mt-1">Requires <code className="font-mono">GOOGLE_API_KEY</code> env var on the server.</p>
+            )}
+            {(editImageProvider === 'dalle3-standard' || editImageProvider === 'dalle3-hd') && (
+              <p className="text-xs text-slate-400 mt-1">Requires <code className="font-mono">OPENAI_API_KEY</code> env var on the server.</p>
+            )}
+            {editImageProvider === 'canva' && (
+              <p className="text-xs text-slate-400 mt-1">Requires tenant to have Canva credentials set in Integrations.</p>
+            )}
           </div>
           <button
             onClick={handleSave}
