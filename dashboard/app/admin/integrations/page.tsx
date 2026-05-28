@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
-import { API_URL as API } from '@/lib/api';
+import { API_URL as API, timedFetch } from '@/lib/api';
 
 interface ServicesData {
   services: Record<string, { status: string }>;
@@ -92,7 +92,7 @@ export default function IntegrationsPage() {
         const supabase = createClient();
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) return;
-        const res = await fetch(`${API}/api/admin/services`, {
+        const res = await timedFetch(`${API}/api/admin/services`, {
           headers: { Authorization: `Bearer ${session.access_token}` },
         });
         if (res.ok) {

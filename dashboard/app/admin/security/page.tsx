@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
-import { API_URL as API } from '@/lib/api';
+import { API_URL as API, timedFetch } from '@/lib/api';
 
 interface SuspiciousUser {
   id: string;
@@ -60,7 +60,7 @@ export default function SecurityPage() {
     try {
       const { data: { session } } = await createClient().auth.getSession();
       if (!session) return;
-      const res = await fetch(`${API}/api/admin/security/suspicious`, {
+      const res = await timedFetch(`${API}/api/admin/security/suspicious`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
       if (!res.ok) throw new Error(await res.text());
@@ -79,7 +79,7 @@ export default function SecurityPage() {
     try {
       const { data: { session } } = await createClient().auth.getSession();
       if (!session) return;
-      const res = await fetch(`${API}/api/admin/security/blocklist`, {
+      const res = await timedFetch(`${API}/api/admin/security/blocklist`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
       if (!res.ok) throw new Error(await res.text());
@@ -99,7 +99,7 @@ export default function SecurityPage() {
 
   const banUser = async (userId: string) => {
     const { data: { session } } = await createClient().auth.getSession();
-    await fetch(`${API}/api/admin/users/${userId}`, {
+    await timedFetch(`${API}/api/admin/users/${userId}`, {
       method: 'PATCH',
       headers: {
         Authorization: `Bearer ${session!.access_token}`,
@@ -118,7 +118,7 @@ export default function SecurityPage() {
     try {
       const { data: { session } } = await createClient().auth.getSession();
       if (!session) throw new Error('Not authenticated');
-      const res = await fetch(`${API}/api/admin/security/blocklist`, {
+      const res = await timedFetch(`${API}/api/admin/security/blocklist`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${session.access_token}`,
@@ -142,7 +142,7 @@ export default function SecurityPage() {
     try {
       const { data: { session } } = await createClient().auth.getSession();
       if (!session) return;
-      const res = await fetch(`${API}/api/admin/security/blocklist/${id}`, {
+      const res = await timedFetch(`${API}/api/admin/security/blocklist/${id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${session.access_token}` },
       });

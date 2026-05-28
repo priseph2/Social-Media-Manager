@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
-import { API_URL as API } from '@/lib/api';
+import { API_URL as API, timedFetch } from '@/lib/api';
 
 interface ServiceCheck {
   status: 'ok' | 'degraded' | 'error' | 'not_configured' | 'configured';
@@ -49,7 +49,7 @@ export default function ServicesPage() {
     if (!t) return;
     setRefreshing(true);
     try {
-      const res = await fetch(`${API}/api/admin/services`, {
+      const res = await timedFetch(`${API}/api/admin/services`, {
         headers: { Authorization: `Bearer ${t}` },
       });
       if (!res.ok) throw new Error(await res.text());

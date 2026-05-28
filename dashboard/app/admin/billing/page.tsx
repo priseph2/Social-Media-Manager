@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
 
 
-import { API_URL as API } from '@/lib/api';
+import { API_URL as API, timedFetch } from '@/lib/api';
 
 interface BillingSummary {
   mrrUsd: number;
@@ -62,7 +62,7 @@ export default function BillingPage() {
   const load = useCallback(async () => {
     const { data: { session } } = await createClient().auth.getSession();
     if (!session) return;
-    const res = await fetch(`${API}/api/admin/billing/summary`, {
+    const res = await timedFetch(`${API}/api/admin/billing/summary`, {
       headers: { Authorization: `Bearer ${session.access_token}` },
     });
     if (res.ok) setData(await res.json());
@@ -73,14 +73,14 @@ export default function BillingPage() {
   const loadChurn = async () => {
     const { data: { session } } = await createClient().auth.getSession();
     if (!session) return;
-    const res = await fetch(`${API}/api/admin/billing/churn`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+    const res = await timedFetch(`${API}/api/admin/billing/churn`, { headers: { Authorization: `Bearer ${session.access_token}` } });
     if (res.ok) setChurn((await res.json()).months);
   };
 
   const loadDunning = async () => {
     const { data: { session } } = await createClient().auth.getSession();
     if (!session) return;
-    const res = await fetch(`${API}/api/admin/billing/dunning`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+    const res = await timedFetch(`${API}/api/admin/billing/dunning`, { headers: { Authorization: `Bearer ${session.access_token}` } });
     if (res.ok) setDunning((await res.json()).dunning);
   };
 

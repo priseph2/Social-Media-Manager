@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 
-import { API_URL as API } from '@/lib/api';
+import { API_URL as API, timedFetch } from '@/lib/api';
 
 const IMAGE_PROVIDERS = [
   { value: 'imagen4-fast',     label: 'Imagen 4 Fast ($0.02/img)' },
@@ -73,7 +73,7 @@ export default function TenantDetailPage() {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) return;
         setToken(session.access_token);
-        const res = await fetch(`${API}/api/admin/tenants/${id}`, {
+        const res = await timedFetch(`${API}/api/admin/tenants/${id}`, {
           headers: { Authorization: `Bearer ${session.access_token}` },
         });
         if (!res.ok) throw new Error(await res.text());
@@ -92,14 +92,14 @@ export default function TenantDetailPage() {
   }, [id]);
 
   const loadNotes = async () => {
-    const res = await fetch(`${API}/api/admin/tenants/${id}/notes`, { headers: { Authorization: `Bearer ${token}` } });
+    const res = await timedFetch(`${API}/api/admin/tenants/${id}/notes`, { headers: { Authorization: `Bearer ${token}` } });
     if (res.ok) { const d = await res.json(); setNotes(d.notes); }
   };
 
   const saveNote = async () => {
     if (!noteText.trim()) return;
     setNoteSaving(true);
-    const res = await fetch(`${API}/api/admin/tenants/${id}/notes`, {
+    const res = await timedFetch(`${API}/api/admin/tenants/${id}/notes`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ note: noteText.trim() }),
@@ -109,14 +109,14 @@ export default function TenantDetailPage() {
   };
 
   const deleteNote = async (noteId: string) => {
-    await fetch(`${API}/api/admin/tenants/${id}/notes/${noteId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+    await timedFetch(`${API}/api/admin/tenants/${id}/notes/${noteId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
     await loadNotes();
   };
 
   const impersonate = async () => {
     if (!confirm('Generate a one-time login link for this tenant? The link gives full access to their account.')) return;
     setImpersonating(true);
-    const res = await fetch(`${API}/api/admin/tenants/${id}/impersonate`, {
+    const res = await timedFetch(`${API}/api/admin/tenants/${id}/impersonate`, {
       method: 'POST', headers: { Authorization: `Bearer ${token}` },
     });
     setImpersonating(false);
@@ -132,7 +132,7 @@ export default function TenantDetailPage() {
     setSaving(true);
     setSaveMsg('');
     try {
-      const res = await fetch(`${API}/api/admin/tenants/${id}`, {
+      const res = await timedFetch(`${API}/api/admin/tenants/${id}`, {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ plan: editPlan, status: editStatus, image_provider: editImageProvider }),

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
 
-import { API_URL as API } from '@/lib/api';
+import { API_URL as API, timedFetch } from '@/lib/api';
 
 interface AdminUser {
   id: string;
@@ -55,7 +55,7 @@ export default function UsersPage() {
     setLoading(true);
     const token = await getToken();
     if (!token) { setLoading(false); return; }
-    const res = await fetch(`${API}/api/admin/users`, {
+    const res = await timedFetch(`${API}/api/admin/users`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (res.ok) {
@@ -74,7 +74,7 @@ export default function UsersPage() {
   const act = async (userId: string, body: object, label: string) => {
     setActing((p) => ({ ...p, [userId]: true }));
     const token = await getToken();
-    const res = await fetch(`${API}/api/admin/users/${userId}`, {
+    const res = await timedFetch(`${API}/api/admin/users/${userId}`, {
       method: 'PATCH',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

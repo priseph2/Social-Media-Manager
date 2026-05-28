@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
-import { API_URL as API } from '@/lib/api';
+import { API_URL as API, timedFetch } from '@/lib/api';
 
 interface UsageData {
   period: string;
@@ -53,7 +53,7 @@ export default function UsagePage() {
         const supabase = createClient();
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) return;
-        const res = await fetch(`${API}/api/admin/usage?period=${period}`, {
+        const res = await timedFetch(`${API}/api/admin/usage?period=${period}`, {
           headers: { Authorization: `Bearer ${session.access_token}` },
         });
         if (!res.ok) throw new Error(await res.text());

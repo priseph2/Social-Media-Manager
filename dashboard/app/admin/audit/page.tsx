@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
-import { API_URL as API } from '@/lib/api';
+import { API_URL as API, timedFetch } from '@/lib/api';
 
 const ENTITY_TYPES = ['all', 'tenant', 'user', 'content_approval', 'ip_blocklist', 'config'] as const;
 type EntityType = (typeof ENTITY_TYPES)[number];
@@ -77,7 +77,7 @@ export default function AuditLogPage() {
     if (!session) { setLoading(false); return; }
     const headers = { Authorization: `Bearer ${session.access_token}` };
 
-    const res = await fetch(`${API}/api/admin/audit`, { headers });
+    const res = await timedFetch(`${API}/api/admin/audit`, { headers });
     if (res.ok) {
       const data = await res.json();
       setEntries(data.entries ?? []);

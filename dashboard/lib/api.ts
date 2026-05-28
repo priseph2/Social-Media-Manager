@@ -40,3 +40,20 @@ export async function apiRequest<T = unknown>(
   }
   return res.json() as Promise<T>;
 }
+
+// Drop-in replacement for fetch() with the same 60s timeout.
+// Use in admin pages instead of raw fetch() so cold-start hangs are avoided.
+export async function timedFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (err) {
+    if ((err as Error).name === 'AbortError') {
+      throw new Error('Request timed out — the server may be starting up. Please try again in a moment.');
+    }
+    throw new Error('Failed to reach the server. Please check your connection and try again.');
+  } finally {
+    clearTimeout(timer);
+  }
+}

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
-import { API_URL as API } from '@/lib/api';
+import { API_URL as API, timedFetch } from '@/lib/api';
 
 interface QueueStats {
   available: boolean;
@@ -92,7 +92,7 @@ export default function JobsPage() {
   async function cleanQueue(queueName: string) {
     setCleaning(queueName);
     try {
-      await fetch(`${API}/api/admin/jobs/${queueName}/clean`, {
+      await timedFetch(`${API}/api/admin/jobs/${queueName}/clean`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });

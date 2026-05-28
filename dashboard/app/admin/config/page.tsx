@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
-import { API_URL as API } from '@/lib/api';
+import { API_URL as API, timedFetch } from '@/lib/api';
 
 type Tab = 'rate_limits' | 'moderation' | 'ai_models' | 'maintenance';
 
@@ -55,7 +55,7 @@ export default function ConfigPage() {
   const load = useCallback(async () => {
     const token = await getToken();
     if (!token) return;
-    const res = await fetch(`${API}/api/admin/config`, {
+    const res = await timedFetch(`${API}/api/admin/config`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (res.ok) {
@@ -78,7 +78,7 @@ export default function ConfigPage() {
     setSaving((p) => ({ ...p, [key]: true }));
     setErrors((p) => ({ ...p, [key]: '' }));
 
-    const res = await fetch(`${API}/api/admin/config/${key}`, {
+    const res = await timedFetch(`${API}/api/admin/config/${key}`, {
       method: 'PUT',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ value: edits[key] }),

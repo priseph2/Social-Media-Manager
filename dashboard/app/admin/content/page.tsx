@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
 
-import { API_URL as API } from '@/lib/api';
+import { API_URL as API, timedFetch } from '@/lib/api';
 
 interface PendingItem {
   id: string;
@@ -41,7 +41,7 @@ export default function ContentApprovalPage() {
   const load = useCallback(async () => {
     const { data: { session } } = await createClient().auth.getSession();
     if (!session) return;
-    const res = await fetch(`${API}/api/admin/content/pending`, {
+    const res = await timedFetch(`${API}/api/admin/content/pending`, {
       headers: { Authorization: `Bearer ${session.access_token}` },
     });
     if (res.ok) {
@@ -63,7 +63,7 @@ export default function ContentApprovalPage() {
     setProcessing((prev) => new Set(prev).add(id));
     const { data: { session } } = await createClient().auth.getSession();
     if (!session) { setProcessing((prev) => { const s = new Set(prev); s.delete(id); return s; }); return; }
-    const res = await fetch(`${API}/api/admin/content/${id}/approve`, {
+    const res = await timedFetch(`${API}/api/admin/content/${id}/approve`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${session.access_token}` },
     });
@@ -77,7 +77,7 @@ export default function ContentApprovalPage() {
     setProcessing((prev) => new Set(prev).add(id));
     const { data: { session } } = await createClient().auth.getSession();
     if (!session) { setProcessing((prev) => { const s = new Set(prev); s.delete(id); return s; }); return; }
-    const res = await fetch(`${API}/api/admin/content/${id}/reject`, {
+    const res = await timedFetch(`${API}/api/admin/content/${id}/reject`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${session.access_token}`,

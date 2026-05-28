@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 
-import { API_URL as API } from '@/lib/api';
+import { API_URL as API, timedFetch } from '@/lib/api';
 
 interface SkillBreakdown {
   skill: string;
@@ -52,7 +52,7 @@ export default function AICostsPage() {
       const supabase = createClient();
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
-      const res = await fetch(`${API}/api/admin/ai/costs`, {
+      const res = await timedFetch(`${API}/api/admin/ai/costs`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
       if (!res.ok) throw new Error(await res.text());
