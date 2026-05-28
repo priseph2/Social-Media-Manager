@@ -177,6 +177,11 @@ function ScheduledTab() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [regenerating, setRegenerating] = useState<Record<string, boolean>>({});
 
+  const fetchPosts = useCallback(() =>
+    apiFetch<{ data: ScheduledPost[] }>('/api/analytics/content?limit=30')
+      .then((d) => setPosts(d.data || []))
+      .catch(() => {}), []);
+
   async function regenerateImage(id: string) {
     setRegenerating((r) => ({ ...r, [id]: true }));
     try {
@@ -186,12 +191,18 @@ function ScheduledTab() {
     finally { setRegenerating((r) => ({ ...r, [id]: false })); }
   }
 
+  // Initial load
   useEffect(() => {
-    apiFetch<{ data: ScheduledPost[] }>('/api/analytics/content?limit=30')
-      .then((d) => setPosts(d.data || []))
-      .catch(() => setPosts([]))
-      .finally(() => setLoading(false));
-  }, []);
+    fetchPosts().finally(() => setLoading(false));
+  }, [fetchPosts]);
+
+  // Poll every 6s while any post is still generating
+  useEffect(() => {
+    const hasGenerating = posts.some((p) => p.imageStatus === 'generating');
+    if (!hasGenerating) return;
+    const id = setInterval(fetchPosts, 6000);
+    return () => clearInterval(id);
+  }, [posts, fetchPosts]);
 
   if (loading) return <p className="text-sm text-slate-400 py-8 text-center">Loading…</p>;
 
@@ -292,12 +303,22 @@ function ScheduledTab() {
                               disabled={regenerating[p.id] || p.imageStatus === 'generating'}
                               className="text-xs text-indigo-600 hover:text-indigo-800 font-medium disabled:opacity-40"
                             >
-                              {regenerating[p.id] ? 'Queuing…' : p.imageUrl ? 'Regenerate' : 'Generate Image'}
+                              {regenerating[p.id]
+                                ? 'Queuing…'
+                                : p.imageUrl
+                                  ? 'Regenerate'
+                                  : p.imageStatus === 'failed'
+                                    ? 'Retry'
+                                    : 'Generate'}
                             </button>
                           </div>
                           {(regenerating[p.id] || p.imageStatus === 'generating') ? (
                             <p className="text-xs text-slate-400 italic flex items-center gap-1">
-                              <Spinner />Generating — refresh in a moment to see result.
+                              <Spinner />Generating image automatically…
+                            </p>
+                          ) : p.imageStatus === 'failed' ? (
+                            <p className="text-xs text-red-400 flex items-center gap-1">
+                              ⚠ Image generation failed — click Retry to try again.
                             </p>
                           ) : p.imageUrl ? (
                             <img
@@ -306,7 +327,9 @@ function ScheduledTab() {
                               className="rounded-lg max-h-64 object-cover border border-slate-200"
                             />
                           ) : (
-                            <p className="text-xs text-slate-400">No image yet — click Generate Image to create one.</p>
+                            <p className="text-xs text-slate-400 italic flex items-center gap-1">
+                              <Spinner />Generating image automatically…
+                            </p>
                           )}
                         </div>
                       )}

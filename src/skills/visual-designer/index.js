@@ -23,49 +23,56 @@ class VisualDesigner extends BaseSkill {
       throw new Error('visual-designer job missing contentId or tenantId');
     }
 
-    // 1. Load content document
-    const content = await Content.findById(contentId);
-    if (!content) {
-      this.log.warn('Content not found — skipping image generation', { contentId });
-      return { skipped: true, reason: 'content_not_found' };
+    try {
+      // 1. Load content document
+      const content = await Content.findById(contentId);
+      if (!content) {
+        this.log.warn('Content not found — skipping image generation', { contentId });
+        return { skipped: true, reason: 'content_not_found' };
+      }
+
+      if (content.brandReview?.status !== 'approved') {
+        this.log.info('Content not approved — skipping image generation', { contentId, status: content.brandReview?.status });
+        return { skipped: true, reason: 'not_approved' };
+      }
+
+      // 2. Load brand config
+      const brandConfig = await this._getBrandConfig(tenantId);
+
+      // 3. Build prompt from approved variation text
+      const effectivePlatform = platform || content.platform || 'default';
+      const captionText = content.variations[content.selectedVariation ?? 0]?.text || '';
+      const prompt = buildImagePrompt(captionText, effectivePlatform, brandConfig);
+
+      this.log.info('Generating image', { contentId, platform: effectivePlatform, provider: 'resolving...' });
+
+      // 4. Get provider adapter and generate image
+      const adapter = await getImageAdapter(tenantId);
+      const { imageBuffer, model, costUsd } = await adapter.generate(prompt, effectivePlatform);
+
+      // 5. Upload to Supabase Storage
+      const imageUrl = await this._uploadImage(tenantId, contentId, imageBuffer);
+
+      // 6. Update content document with image fields
+      const aspectRatio = PLATFORM_ASPECT_RATIOS[effectivePlatform] || '1:1';
+      await Content.findByIdAndUpdate(contentId, {
+        imageUrl,
+        imageModel: model,
+        imageAspectRatio: aspectRatio,
+        imageStatus: 'generated',
+      });
+
+      // 7. Record image usage (fire-and-forget)
+      recordImageUsage(tenantId, model, costUsd, 'visual-designer');
+
+      this.log.info('Image generated successfully', { contentId, imageUrl, model, costUsd });
+      return { imageUrl, model, contentId, costUsd };
+    } catch (err) {
+      // Mark as failed so the UI doesn't stay stuck on 'generating'
+      await Content.findByIdAndUpdate(contentId, { imageStatus: 'failed' }).catch(() => {});
+      this.log.error('Image generation failed', { contentId, error: err.message });
+      throw err;
     }
-
-    if (content.brandReview?.status !== 'approved') {
-      this.log.info('Content not approved — skipping image generation', { contentId, status: content.brandReview?.status });
-      return { skipped: true, reason: 'not_approved' };
-    }
-
-    // 2. Load brand config
-    const brandConfig = await this._getBrandConfig(tenantId);
-
-    // 3. Build prompt from approved variation text
-    const effectivePlatform = platform || content.platform || 'default';
-    const captionText = content.variations[content.selectedVariation ?? 0]?.text || '';
-    const prompt = buildImagePrompt(captionText, effectivePlatform, brandConfig);
-
-    this.log.info('Generating image', { contentId, platform: effectivePlatform, provider: 'resolving...' });
-
-    // 4. Get provider adapter and generate image
-    const adapter = await getImageAdapter(tenantId);
-    const { imageBuffer, model, costUsd } = await adapter.generate(prompt, effectivePlatform);
-
-    // 5. Upload to Supabase Storage
-    const imageUrl = await this._uploadImage(tenantId, contentId, imageBuffer);
-
-    // 6. Update content document with image fields
-    const aspectRatio = PLATFORM_ASPECT_RATIOS[effectivePlatform] || '1:1';
-    await Content.findByIdAndUpdate(contentId, {
-      imageUrl,
-      imageModel: model,
-      imageAspectRatio: aspectRatio,
-      imageStatus: 'generated',
-    });
-
-    // 7. Record image usage (fire-and-forget)
-    recordImageUsage(tenantId, model, costUsd, 'visual-designer');
-
-    this.log.info('Image generated successfully', { contentId, imageUrl, model, costUsd });
-    return { imageUrl, model, contentId, costUsd };
   }
 
   async _getBrandConfig(tenantId) {
