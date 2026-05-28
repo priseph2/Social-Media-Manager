@@ -84,10 +84,24 @@ export default function BrandSettingsPage() {
       if (!session) return;
       const ext = file.name.split('.').pop()?.toLowerCase() || 'png';
       const path = `${session.user.id}/logo.${ext}`;
-      const { error: uploadErr } = await supabase.storage.from('brand-assets').upload(path, file, { upsert: true, contentType: file.type });
+      const { error: uploadErr } = await supabase.storage
+        .from('brand-assets')
+        .upload(path, file, { upsert: true, contentType: file.type });
       if (uploadErr) throw new Error(uploadErr.message);
       const { data: { publicUrl } } = supabase.storage.from('brand-assets').getPublicUrl(path);
-      set(['identity', 'logoUrl'], publicUrl);
+
+      // Update local state so preview renders immediately
+      const updatedConfig = {
+        ...config,
+        identity: { ...config.identity, logoUrl: publicUrl },
+      };
+      setConfig(updatedConfig);
+
+      // Auto-save so the URL is persisted without requiring a manual Save click
+      await apiRequest('/api/tenants/me/brand-config', session.access_token, {
+        method: 'PUT',
+        body: JSON.stringify(updatedConfig),
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Logo upload failed');
     } finally {
@@ -184,6 +198,9 @@ export default function BrandSettingsPage() {
                 >
                   {uploadingLogo ? 'Uploading…' : config.identity?.logoUrl ? 'Replace logo' : 'Upload logo'}
                 </button>
+                {!uploadingLogo && config.identity?.logoUrl && (
+                  <p className="text-xs text-emerald-600 mt-1">Logo saved ✓</p>
+                )}
                 <p className="text-xs text-slate-400 mt-1">PNG or SVG with transparent background recommended.<br/>Overlaid on generated images automatically.</p>
               </div>
             </div>
