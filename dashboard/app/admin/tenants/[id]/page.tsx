@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+import { API_URL as API } from '@/lib/api';
 
 const IMAGE_PROVIDERS = [
   { value: 'imagen4-fast',     label: 'Imagen 4 Fast ($0.02/img)' },

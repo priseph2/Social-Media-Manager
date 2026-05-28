@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
 
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+import { API_URL as API } from '@/lib/api';
 
 interface BillingSummary {
   mrrUsd: number;

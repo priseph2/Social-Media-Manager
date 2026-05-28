@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { API_URL } from '@/lib/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -87,7 +88,7 @@ const LANGUAGES: Record<string, string> = { fr: 'French', sw: 'Swahili', yo: 'Yo
 async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
   const supabase = createClient();
   const { data: { session } } = await supabase.auth.getSession();
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+
   const res = await fetch(`${API_URL}${path}`, {
     headers: {
       'Content-Type': 'application/json',

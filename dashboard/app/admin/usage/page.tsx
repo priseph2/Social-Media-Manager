@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+import { API_URL as API } from '@/lib/api';
 
 interface UsageData {
   period: string;

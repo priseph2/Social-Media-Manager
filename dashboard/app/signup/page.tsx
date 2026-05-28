@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
 import { Eye, EyeOff } from 'lucide-react';
+import { API_URL } from '@/lib/api';
 
 export default function SignupPage() {
   const supabase = createClient();
@@ -21,7 +22,7 @@ export default function SignupPage() {
 
     try {
       // Run abuse-prevention checks before creating a Supabase account
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+      const apiUrl = API_URL;
       const check = await fetch(`${apiUrl}/api/auth/validate-signup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
