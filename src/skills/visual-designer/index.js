@@ -5,6 +5,7 @@ const Content = require('../../models/content.model');
 const { getSupabaseClient } = require('../../services/database/supabase-client');
 const { getImageAdapter } = require('../../services/image-generation');
 const { buildImagePrompt } = require('./prompt-builder');
+const { addBrandOverlay } = require('./brand-overlay');
 const { recordImageUsage } = require('../../services/billing/usage-meter');
 const { PLATFORM_ASPECT_RATIOS } = require('../../services/image-generation/base-adapter');
 const logger = require('../../utils/logger');
@@ -50,10 +51,13 @@ class VisualDesigner extends BaseSkill {
       const adapter = await getImageAdapter(tenantId);
       const { imageBuffer, model, costUsd } = await adapter.generate(prompt, effectivePlatform);
 
-      // 5. Upload to Supabase Storage
-      const imageUrl = await this._uploadImage(tenantId, contentId, imageBuffer);
+      // 5. Composite brand overlays (logo + website URL) onto generated image
+      const finalBuffer = await addBrandOverlay(imageBuffer, brandConfig);
 
-      // 6. Update content document with image fields
+      // 6. Upload to Supabase Storage
+      const imageUrl = await this._uploadImage(tenantId, contentId, finalBuffer);
+
+      // 7. Update content document with image fields
       const aspectRatio = PLATFORM_ASPECT_RATIOS[effectivePlatform] || '1:1';
       await Content.findByIdAndUpdate(contentId, {
         imageUrl,
@@ -62,7 +66,7 @@ class VisualDesigner extends BaseSkill {
         imageStatus: 'generated',
       });
 
-      // 7. Record image usage (fire-and-forget)
+      // 8. Record image usage (fire-and-forget)
       recordImageUsage(tenantId, model, costUsd, 'visual-designer');
 
       this.log.info('Image generated successfully', { contentId, imageUrl, model, costUsd });

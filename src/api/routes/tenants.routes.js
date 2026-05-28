@@ -3,7 +3,7 @@
 const express = require('express');
 const { authenticate } = require('../middleware/auth');
 const { getSupabaseClient } = require('../../services/database/supabase-client');
-const { setBrandConfig } = require('../../services/brand-config');
+const { setBrandConfig, getBrandConfig } = require('../../services/brand-config');
 const { setCredentials } = require('../../services/credential-store');
 const { sendWelcomeEmail } = require('../../services/transactional-email');
 const { validateSignup, decrementDomainCounter } = require('../../services/abuse-prevention');
@@ -190,6 +190,27 @@ router.put('/me/onboarding/:step', async (req, res, next) => {
       data: safeData,
       completed_at: new Date().toISOString(),
     }, { onConflict: 'tenant_id,step' });
+
+    // Merge relevant onboarding data into brand_config so it's available immediately
+    if (step === 'company' && (safeData.website || safeData.logoUrl)) {
+      try {
+        const existing = await getBrandConfig(req.tenantId);
+        const merged = { ...existing, identity: { ...existing.identity } };
+        if (safeData.website)  merged.identity.website  = safeData.website;
+        if (safeData.logoUrl)  merged.identity.logoUrl  = safeData.logoUrl;
+        await setBrandConfig(req.tenantId, merged);
+      } catch (e) { logger.warn('Failed to merge company data into brand config', { error: e.message }); }
+    }
+
+    if (step === 'audience' && (safeData.primary || safeData.secondary)) {
+      try {
+        const existing = await getBrandConfig(req.tenantId);
+        const merged = { ...existing, audience: { ...existing.audience } };
+        if (safeData.primary)   merged.audience.primary   = safeData.primary;
+        if (safeData.secondary) merged.audience.secondary = safeData.secondary;
+        await setBrandConfig(req.tenantId, merged);
+      } catch (e) { logger.warn('Failed to merge audience data into brand config', { error: e.message }); }
+    }
 
     // If final step, activate tenant + send welcome email
     if (req.params.step === 'launch') {

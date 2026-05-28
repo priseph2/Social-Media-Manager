@@ -22,6 +22,7 @@ const PLATFORM_GUIDANCE = {
  */
 function buildImagePrompt(captionText, platform, brandConfig = {}) {
   const companyName    = brandConfig.identity?.name        || '';
+  const website        = brandConfig.identity?.website     || '';
   const brandVoice     = brandConfig.voice?.tone           || '';
   const targetAudience = brandConfig.audience?.primary     || '';
   const visualStyle    = brandConfig.visual?.style         || '';
@@ -32,6 +33,7 @@ function buildImagePrompt(captionText, platform, brandConfig = {}) {
   const audience  = targetAudience ? `Target audience: ${targetAudience}.` : '';
   const style     = visualStyle    ? `Visual style: ${visualStyle}.`    : '';
   const voice     = brandVoice     ? `Brand personality: ${brandVoice}.` : '';
+  const domain    = website ? `Brand website: ${website.replace(/^https?:\/\//, '').replace(/\/$/, '')}.` : '';
 
   const sceneBrief = captionText.length > 200
     ? captionText.slice(0, 200).replace(/[#@].*/g, '').trim()
@@ -45,7 +47,8 @@ function buildImagePrompt(captionText, platform, brandConfig = {}) {
     audience,
     style,
     voice,
-    'Photorealistic or polished illustration. No text overlays. No watermarks. No borders.',
+    domain,
+    'Photorealistic or polished illustration. Leave bottom edge clear for text overlay. No internal watermarks. No borders.',
   ].filter(Boolean).join(' ');
 }
 

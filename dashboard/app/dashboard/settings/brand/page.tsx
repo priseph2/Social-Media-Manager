@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { apiRequest } from '@/lib/api';
 
 interface BrandConfig {
-  identity?: { name?: string; tagline?: string; positioning?: string; markets?: string[] };
+  identity?: { name?: string; tagline?: string; positioning?: string; markets?: string[]; website?: string; logoUrl?: string };
   voice?: { tone?: string; personality?: string[]; doList?: string[]; dontList?: string[] };
   audience?: { primary?: string; secondary?: string };
   compliance?: { pricing?: string };
@@ -27,6 +27,8 @@ export default function BrandSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     (async () => {
@@ -74,6 +76,25 @@ export default function BrandSettingsPage() {
     });
   }
 
+  async function uploadLogo(file: File) {
+    setUploadingLogo(true);
+    setError('');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const ext = file.name.split('.').pop()?.toLowerCase() || 'png';
+      const path = `${session.user.id}/logo.${ext}`;
+      const { error: uploadErr } = await supabase.storage.from('brand-assets').upload(path, file, { upsert: true, contentType: file.type });
+      if (uploadErr) throw new Error(uploadErr.message);
+      const { data: { publicUrl } } = supabase.storage.from('brand-assets').getPublicUrl(path);
+      set(['identity', 'logoUrl'], publicUrl);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Logo upload failed');
+    } finally {
+      setUploadingLogo(false);
+    }
+  }
+
   async function save() {
     setSaving(true); setSaved(false); setError('');
     const { data: { session } } = await supabase.auth.getSession();
@@ -117,6 +138,9 @@ export default function BrandSettingsPage() {
           <Field label="Tagline">
             <input type="text" value={config.identity?.tagline ?? ''} onChange={(e) => set(['identity', 'tagline'], e.target.value)} className={inputCls} />
           </Field>
+          <Field label="Website">
+            <input type="url" value={config.identity?.website ?? ''} onChange={(e) => set(['identity', 'website'], e.target.value)} className={inputCls} placeholder="https://yoursite.com" />
+          </Field>
           <Field label="Positioning">
             <textarea value={config.identity?.positioning ?? ''} onChange={(e) => set(['identity', 'positioning'], e.target.value)} rows={3} className={inputCls} />
           </Field>
@@ -127,6 +151,42 @@ export default function BrandSettingsPage() {
               onChange={(e) => set(['identity', 'markets'], e.target.value.split(',').map((s) => s.trim()).filter(Boolean))}
               className={inputCls}
             />
+          </Field>
+          <Field label="Brand Logo">
+            <div className="flex items-center gap-4">
+              {config.identity?.logoUrl ? (
+                <div className="relative w-20 h-20 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden">
+                  <img src={config.identity.logoUrl} alt="Brand logo" className="max-w-full max-h-full object-contain p-1" />
+                  <button
+                    type="button"
+                    onClick={() => set(['identity', 'logoUrl'], '')}
+                    className="absolute top-1 right-1 bg-white rounded-full w-5 h-5 flex items-center justify-center text-slate-400 hover:text-red-500 shadow-sm border border-slate-200 text-xs"
+                  >✕</button>
+                </div>
+              ) : (
+                <div className="w-20 h-20 rounded-lg border-2 border-dashed border-slate-300 flex items-center justify-center text-slate-400 text-xs text-center">
+                  No logo
+                </div>
+              )}
+              <div>
+                <input
+                  ref={logoInputRef}
+                  type="file"
+                  accept="image/png,image/svg+xml,image/webp"
+                  className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadLogo(f); }}
+                />
+                <button
+                  type="button"
+                  onClick={() => logoInputRef.current?.click()}
+                  disabled={uploadingLogo}
+                  className="text-sm text-indigo-600 hover:text-indigo-800 font-medium disabled:opacity-50"
+                >
+                  {uploadingLogo ? 'Uploading…' : config.identity?.logoUrl ? 'Replace logo' : 'Upload logo'}
+                </button>
+                <p className="text-xs text-slate-400 mt-1">PNG or SVG with transparent background recommended.<br/>Overlaid on generated images automatically.</p>
+              </div>
+            </div>
           </Field>
         </Section>
 
