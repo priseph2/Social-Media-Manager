@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { ServerStatusBanner } from './server-status-banner';
 
 interface AppShellProps {
   sidebar: React.ReactNode;
@@ -82,7 +83,10 @@ export function AppShell({ sidebar, mobileHeader, children }: AppShellProps) {
           {mobileHeader}
         </header>
 
-        <main className="flex-1 overflow-auto">{children}</main>
+        <main className="flex-1 overflow-auto">
+          <ServerStatusBanner />
+          {children}
+        </main>
       </div>
     </div>
   );
