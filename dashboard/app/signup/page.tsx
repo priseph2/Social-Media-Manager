@@ -21,17 +21,21 @@ export default function SignupPage() {
     setLoading(true);
 
     try {
-      // Run abuse-prevention checks before creating a Supabase account
-      const apiUrl = API_URL;
-      const check = await fetch(`${apiUrl}/api/auth/validate-signup`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
-      }).then((r) => r.json()) as { allowed: boolean; reason?: string };
+      // Run abuse-prevention checks — fail open if backend is unreachable
+      try {
+        const check = await fetch(`${API_URL}/api/auth/validate-signup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+          signal: AbortSignal.timeout(8000),
+        }).then((r) => r.json()) as { allowed: boolean; reason?: string };
 
-      if (!check.allowed) {
-        setError(check.reason || 'This email address cannot be used for sign-up.');
-        return;
+        if (!check.allowed) {
+          setError(check.reason || 'This email address cannot be used for sign-up.');
+          return;
+        }
+      } catch {
+        // Backend unreachable (sleeping, network error) — allow signup to proceed
       }
 
       const { error: signupError } = await supabase.auth.signUp({
@@ -41,8 +45,8 @@ export default function SignupPage() {
       });
       if (signupError) { setError(signupError.message); return; }
       setDone(true);
-    } catch {
-      setError('Something went wrong. Please try again.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
     } finally {
       setLoading(false);
     }
