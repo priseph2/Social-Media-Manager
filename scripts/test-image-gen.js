@@ -25,8 +25,10 @@ async function listGoogleImageModels() {
     .filter((m) => {
       const methods = m.supportedGenerationMethods || [];
       const name = m.name.toLowerCase();
+      // Only keep models that explicitly mention "image" or "imagen" in the name
+      // (avoids picking up TTS, thinking, or pure-text flash variants)
       return methods.includes('generateContent') &&
-        (name.includes('flash') || name.includes('imagen') || name.includes('image'));
+        (name.includes('imagen') || name.includes('-image'));
     })
     .map((m) => m.name.replace('models/', ''));
 }

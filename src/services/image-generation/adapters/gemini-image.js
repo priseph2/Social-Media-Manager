@@ -3,11 +3,18 @@
 const { ImageAdapter } = require('../base-adapter');
 
 // Gemini image generation — works on the free Google AI Studio tier.
-// Tries model names in order; the available model varies by API key tier.
+// Tries model names in order; available models vary by API key tier.
+// List reflects models discovered via ModelService.ListModels — image-specific
+// ones first, then general-purpose flash models that support image output.
 const CANDIDATE_MODELS = [
-  'gemini-2.0-flash-exp',                        // experimental, earliest image-gen support
-  'gemini-2.0-flash-preview-image-generation',   // preview alias (may not exist on all keys)
-  'gemini-2.0-flash',                            // stable channel
+  'gemini-3.1-flash-image',               // latest image model (2025)
+  'gemini-3.1-flash-image-preview',
+  'gemini-3-pro-image',
+  'gemini-3-pro-image-preview',
+  'gemini-2.5-flash-image',
+  'gemini-2.0-flash-exp',                 // first to support image generation
+  'gemini-2.0-flash',
+  'gemini-2.5-flash',
 ];
 
 const COST_PER_IMAGE = 0.01; // approximate
