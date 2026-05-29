@@ -8,7 +8,7 @@ const { analyzeComment, analyzeComments } = require('./sentiment-analyzer');
 const { eventBus, EVENTS } = require('../../services/messaging/event-emitter');
 const { enqueue } = require('../../orchestrator/message-queue');
 const { supabaseQuery } = require('../../services/database/supabase-client');
-const bufferApi = require('../../services/api-clients/buffer-api');
+const { getBufferClient } = require('../../services/api-clients/buffer-api');
 const metaApi = require('../../services/api-clients/meta-api');
 const tiktokApi = require('../../services/api-clients/tiktok-api');
 const { SKILLS, QUEUES, PRIORITY, MODELS } = require('../../config/constants');
@@ -173,7 +173,10 @@ class SocialMediaManager extends BaseSkill {
 
     // Fall back to Buffer if native posting was skipped or failed
     if (!nativeResult?.success) {
-      bufferResult = await bufferApi.schedulePost({ platform, text: adapted.text, mediaUrls: imageUrl ? [imageUrl] : [], scheduledAt: postTime });
+      const bufferClient = await getBufferClient(tenantId);
+      if (bufferClient) {
+        bufferResult = await bufferClient.schedulePost({ platform, text: adapted.text, mediaUrls: imageUrl ? [imageUrl] : [], scheduledAt: postTime });
+      }
     }
 
     // Log to Supabase content_schedule table
