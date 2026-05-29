@@ -110,6 +110,8 @@ export default function IntegrationsPage() {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
   const [syncError, setSyncError] = useState('');
+  const [schemaResult, setSchemaResult] = useState<unknown>(null);
+  const [schemaLoading, setSchemaLoading] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -130,6 +132,24 @@ export default function IntegrationsPage() {
     }
     load();
   }, []);
+
+  async function inspectBufferSchema() {
+    setSchemaLoading(true);
+    setSchemaResult(null);
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const res = await timedFetch(`${API}/api/admin/buffer/schema`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      setSchemaResult(await res.json());
+    } catch (e) {
+      setSchemaResult({ error: e instanceof Error ? e.message : 'Failed' });
+    } finally {
+      setSchemaLoading(false);
+    }
+  }
 
   async function runBufferSync(dryRun: boolean) {
     setSyncing(true);
@@ -177,7 +197,14 @@ export default function IntegrationsPage() {
           </p>
         </div>
         <div className="px-5 py-4 space-y-4">
-          <div className="flex gap-3">
+          <div className="flex gap-3 flex-wrap">
+            <button
+              onClick={inspectBufferSchema}
+              disabled={schemaLoading}
+              className="text-sm px-4 py-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 transition-colors"
+            >
+              {schemaLoading ? 'Inspecting…' : 'Inspect schema'}
+            </button>
             <button
               onClick={() => runBufferSync(true)}
               disabled={syncing}
@@ -193,6 +220,12 @@ export default function IntegrationsPage() {
               {syncing ? 'Syncing…' : 'Push to Buffer'}
             </button>
           </div>
+
+          {schemaResult && (
+            <pre className="text-xs font-mono bg-slate-50 border border-slate-100 rounded-lg p-3 overflow-x-auto max-h-64">
+              {JSON.stringify(schemaResult, null, 2)}
+            </pre>
+          )}
 
           {syncError && (
             <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-2">{syncError}</p>
