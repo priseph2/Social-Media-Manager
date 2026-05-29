@@ -71,7 +71,7 @@ export default function TenantDetailPage() {
   const [bufferTesting, setBufferTesting] = useState(false);
   const [bufferTestResult, setBufferTestResult] = useState<{ ok: boolean; message: string; keySource?: string; channels?: { service: string; name: string }[] } | null>(null);
   const [bufferSyncing, setBufferSyncing] = useState(false);
-  const [bufferSyncResult, setBufferSyncResult] = useState<{ synced: number; failed: number; message?: string } | null>(null);
+  const [bufferSyncResult, setBufferSyncResult] = useState<{ synced: number; failed: number; dryRun?: boolean; message?: string; details?: Array<{ id?: string; platform?: string; bufferId?: string; error?: string; reason?: string; dryRun?: boolean }> } | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -450,11 +450,17 @@ export default function TenantDetailPage() {
               )}
 
               {bufferSyncResult && (
-                <div className="rounded-lg px-3 py-2 text-xs bg-slate-50 border border-slate-100 text-slate-700">
+                <div className="rounded-lg px-3 py-2 text-xs bg-slate-50 border border-slate-100 text-slate-700 space-y-1">
                   {bufferSyncResult.message
                     ? <p>{bufferSyncResult.message}</p>
-                    : <p>{bufferSyncResult.synced} synced · {bufferSyncResult.failed} failed</p>
+                    : <p className="font-medium">{bufferSyncResult.dryRun ? 'Dry run — ' : ''}{bufferSyncResult.synced} synced · {bufferSyncResult.failed} failed</p>
                   }
+                  {bufferSyncResult.details?.filter((d) => d.error || d.reason).map((d, i) => (
+                    <p key={i} className="text-red-600 font-mono break-all">✗ {d.platform}: {d.error || d.reason}</p>
+                  ))}
+                  {bufferSyncResult.details?.filter((d) => d.bufferId).map((d, i) => (
+                    <p key={i} className="text-emerald-600 font-mono">✓ {d.platform}: {d.bufferId}</p>
+                  ))}
                 </div>
               )}
             </div>

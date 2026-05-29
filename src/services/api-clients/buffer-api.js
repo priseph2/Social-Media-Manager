@@ -101,30 +101,41 @@ class BufferClient {
       if (scheduledAt) input.scheduledAt = new Date(scheduledAt).toISOString();
       if (mediaUrls.length) input.media = mediaUrls.slice(0, 4).map((url) => ({ url }));
 
-      logger.info('[Buffer] Sending CreatePost mutation', { platform, channelId, scheduledAt: input.scheduledAt, hasMedia: !!input.media });
+      logger.info('[Buffer] Sending CreatePost mutation', { platform, channelId, scheduledAt: input.scheduledAt, hasMedia: !!input.media, inputKeys: Object.keys(input) });
 
-      let data;
+      // Try the mutation; if it fails with a schema error, log the full raw response
+      let rawRes;
       try {
-        data = await this._gql(`
-          mutation CreatePost($input: CreatePostInput!) {
-            createPost(input: $input) {
-              post { id status }
-            }
-          }
-        `, { input });
-      } catch (gqlErr) {
-        logger.error('[Buffer] CreatePost mutation failed', {
-          platform, channelId, error: gqlErr.message,
-          hint: 'Check field names against Buffer GraphQL schema — scheduledAt, text, media, channelId',
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 15000);
+        rawRes = await fetch(GQL_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.apiKey}` },
+          body: JSON.stringify({
+            query: `mutation CreatePost($input: CreatePostInput!) {
+              createPost(input: $input) { post { id status } }
+            }`,
+            variables: { input },
+          }),
+          signal: controller.signal,
         });
-        return { success: false, error: gqlErr.message };
+        clearTimeout(timeout);
+      } catch (fetchErr) {
+        logger.error('[Buffer] CreatePost fetch failed', { platform, error: fetchErr.message });
+        return { success: false, error: fetchErr.message };
       }
 
-      const post = data?.createPost?.post;
-      if (!post?.id) {
-        logger.warn('[Buffer] CreatePost returned no post ID', { platform, data: JSON.stringify(data) });
-        return { success: false, error: 'Buffer returned no post ID' };
+      const json = await rawRes.json();
+      // Log the full response so we can see schema errors clearly
+      logger.info('[Buffer] CreatePost raw response', { platform, status: rawRes.status, body: JSON.stringify(json).slice(0, 500) });
+
+      if (json.errors?.length) {
+        const errMsg = json.errors.map((e) => e.message).join('; ');
+        logger.error('[Buffer] CreatePost mutation error', { platform, channelId, error: errMsg });
+        return { success: false, error: errMsg };
       }
+
+      const post = json.data?.createPost?.post;
       logger.info('[Buffer] Post scheduled successfully', { platform, id: post.id, status: post.status });
       return { success: true, id: post.id, status: post.status, platform };
     } catch (err) {
