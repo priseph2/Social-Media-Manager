@@ -59,6 +59,8 @@ export default function IntegrationsPage() {
   const [platformType, setPlatformType] = useState('shopify');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [testResults, setTestResults] = useState<Record<string, { ok: boolean; message: string }>>({});
+  const [testing, setTesting] = useState<string | null>(null);
 
   useEffect(() => { load(); }, []);
 
@@ -91,6 +93,25 @@ export default function IntegrationsPage() {
     }
   }
 
+  async function testConnection(integrationId: string) {
+    setTesting(integrationId);
+    setTestResults((prev) => ({ ...prev, [integrationId]: { ok: false, message: 'Testing…' } }));
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { setTesting(null); return; }
+    try {
+      const result = await apiRequest<{ ok: boolean; message: string }>(
+        `/api/tenants/me/credentials/${integrationId}/test`,
+        session.access_token,
+        { method: 'POST' }
+      );
+      setTestResults((prev) => ({ ...prev, [integrationId]: result }));
+    } catch (e) {
+      setTestResults((prev) => ({ ...prev, [integrationId]: { ok: false, message: e instanceof Error ? e.message : 'Test failed' } }));
+    } finally {
+      setTesting(null);
+    }
+  }
+
   function toggleForm(integrationId: string) {
     if (activeForm === integrationId) {
       setActiveForm(null);
@@ -119,6 +140,8 @@ export default function IntegrationsPage() {
           const isOpen = activeForm === integration.id;
           const fields = integration.isEcommerce ? (ECOMMERCE_FIELDS[platformType] ?? []) : integration.fields;
           const catColor = CATEGORY_COLORS[integration.category] || 'bg-slate-50 text-slate-500';
+          const testResult = testResults[integration.id];
+          const isTesting = testing === integration.id;
 
           return (
             <div
@@ -141,9 +164,25 @@ export default function IntegrationsPage() {
 
                 <div className="flex items-center gap-3 shrink-0 ml-4">
                   {connected && (
-                    <span className="text-xs text-emerald-600 font-medium hidden sm:block">
-                      Connected {connection?.connected_at ? new Date(connection.connected_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}
-                    </span>
+                    <div className="hidden sm:flex flex-col items-end gap-0.5">
+                      <span className="text-xs text-emerald-600 font-medium">
+                        Connected {connection?.connected_at ? new Date(connection.connected_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}
+                      </span>
+                      {testResult && (
+                        <span className={`text-[10px] font-medium ${testResult.ok ? 'text-emerald-600' : 'text-red-500'}`}>
+                          {testResult.ok ? '✓' : '✗'} {testResult.message}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {connected && !isOpen && (
+                    <button
+                      onClick={() => testConnection(integration.id)}
+                      disabled={isTesting}
+                      className="text-xs font-medium px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-600 bg-white hover:bg-slate-50 disabled:opacity-50 transition-colors"
+                    >
+                      {isTesting ? 'Testing…' : 'Test'}
+                    </button>
                   )}
                   <button
                     onClick={() => toggleForm(integration.id)}

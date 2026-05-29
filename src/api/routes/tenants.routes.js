@@ -4,7 +4,7 @@ const express = require('express');
 const { authenticate } = require('../middleware/auth');
 const { getSupabaseClient } = require('../../services/database/supabase-client');
 const { setBrandConfig, getBrandConfig } = require('../../services/brand-config');
-const { setCredentials } = require('../../services/credential-store');
+const { setCredentials, getCredentials } = require('../../services/credential-store');
 const { sendWelcomeEmail } = require('../../services/transactional-email');
 const { validateSignup, decrementDomainCounter } = require('../../services/abuse-prevention');
 const logger = require('../../utils/logger');
@@ -158,6 +158,129 @@ router.get('/me/connections', async (req, res, next) => {
     next(err);
   }
 });
+
+// POST /api/tenants/me/credentials/:service/test — verify saved credentials actually work
+router.post('/me/credentials/:service/test', async (req, res, next) => {
+  try {
+    if (!req.tenantId) return res.status(400).json({ error: 'No tenant context' });
+    const { service } = req.params;
+    if (!ALLOWED_CREDENTIAL_SERVICES.has(service)) {
+      return res.status(400).json({ error: `Unknown service: ${service}` });
+    }
+
+    const creds = await getCredentials(req.tenantId, service);
+    if (!creds) return res.json({ ok: false, message: 'No credentials saved for this service.' });
+
+    const result = await testCredentials(service, creds);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+async function testCredentials(service, creds) {
+  const timeout = (ms) => new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), ms));
+
+  try {
+    switch (service) {
+      case 'buffer': {
+        const res = await Promise.race([
+          fetch('https://api.buffer.com', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${creds.apiKey}` },
+            body: JSON.stringify({ query: '{ account { organizations { id } } }' }),
+          }),
+          timeout(10000),
+        ]);
+        const json = await res.json();
+        if (json.errors?.length) return { ok: false, message: `Buffer: ${json.errors[0].message}` };
+        const orgs = json?.data?.account?.organizations ?? [];
+        return { ok: true, message: `Buffer connected — ${orgs.length} organisation${orgs.length !== 1 ? 's' : ''} found.` };
+      }
+
+      case 'mailchimp': {
+        const server = creds.serverPrefix || 'us1';
+        const res = await Promise.race([
+          fetch(`https://${server}.api.mailchimp.com/3.0/`, {
+            headers: { Authorization: `Bearer ${creds.apiKey}` },
+          }),
+          timeout(10000),
+        ]);
+        if (!res.ok) return { ok: false, message: `Mailchimp: HTTP ${res.status} — check your API key and server prefix.` };
+        const json = await res.json();
+        return { ok: true, message: `Mailchimp connected — account: ${json.account_name || json.email || 'OK'}.` };
+      }
+
+      case 'meta': {
+        const res = await Promise.race([
+          fetch(`https://graph.facebook.com/v19.0/me?access_token=${encodeURIComponent(creds.accessToken)}`),
+          timeout(10000),
+        ]);
+        const json = await res.json();
+        if (json.error) return { ok: false, message: `Meta: ${json.error.message}` };
+        return { ok: true, message: `Meta connected — page ID: ${creds.pageId || json.id}.` };
+      }
+
+      case 'ga4': {
+        if (!creds.propertyId) return { ok: false, message: 'GA4: Property ID is required.' };
+        // Minimal check — if propertyId and clientEmail look valid
+        const emailOk = creds.clientEmail?.includes('@') && creds.clientEmail?.includes('.iam.gserviceaccount.com');
+        const keyOk = creds.privateKey?.startsWith('-----BEGIN');
+        if (!emailOk) return { ok: false, message: 'GA4: Service account email looks invalid.' };
+        if (!keyOk) return { ok: false, message: 'GA4: Private key should start with -----BEGIN RSA PRIVATE KEY-----' };
+        return { ok: true, message: `GA4: Credentials look valid (property ${creds.propertyId}). Full verification happens on first analytics run.` };
+      }
+
+      case 'whatsapp': {
+        const res = await Promise.race([
+          fetch(`https://graph.facebook.com/v19.0/${creds.phoneNumberId}?access_token=${encodeURIComponent(creds.token)}`),
+          timeout(10000),
+        ]);
+        const json = await res.json();
+        if (json.error) return { ok: false, message: `WhatsApp: ${json.error.message}` };
+        return { ok: true, message: `WhatsApp connected — phone number ID verified.` };
+      }
+
+      case 'tidio': {
+        const res = await Promise.race([
+          fetch('https://api.tidio.co/api/v1/account', {
+            headers: { Authorization: `Bearer ${creds.apiKey}` },
+          }),
+          timeout(10000),
+        ]);
+        if (!res.ok) return { ok: false, message: `Tidio: HTTP ${res.status} — check your API key.` };
+        return { ok: true, message: 'Tidio connected.' };
+      }
+
+      case 'canva': {
+        if (!creds.client_id || !creds.client_secret) return { ok: false, message: 'Canva: Client ID and Client Secret are required.' };
+        return { ok: true, message: 'Canva credentials saved. Full verification happens on first image generation.' };
+      }
+
+      case 'ecommerce': {
+        const type = creds._platformType;
+        if (type === 'shopify' && creds.storeUrl && creds.accessToken) {
+          const host = creds.storeUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
+          const res = await Promise.race([
+            fetch(`https://${host}/admin/api/2024-01/shop.json`, {
+              headers: { 'X-Shopify-Access-Token': creds.accessToken },
+            }),
+            timeout(10000),
+          ]);
+          const json = await res.json();
+          if (!res.ok) return { ok: false, message: `Shopify: ${json.errors || `HTTP ${res.status}`}` };
+          return { ok: true, message: `Shopify connected — shop: ${json.shop?.name || host}.` };
+        }
+        return { ok: true, message: `${type || 'E-commerce'} credentials saved. Verification happens on first sync.` };
+      }
+
+      default:
+        return { ok: true, message: 'Credentials saved. No automated test available for this service.' };
+    }
+  } catch (err) {
+    return { ok: false, message: err.message || 'Connection test failed.' };
+  }
+}
 
 // PUT /api/tenants/me/onboarding/:step — mark onboarding step complete
 // Canonical names plus frontend aliases (brand_voice → voice, integrations → platforms)
