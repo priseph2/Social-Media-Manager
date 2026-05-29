@@ -5,6 +5,26 @@ const { getCredentials } = require('../credential-store');
 
 const GQL_ENDPOINT = 'https://api.buffer.com';
 
+// Buffer service names → our internal platform names
+const SERVICE_MAP = {
+  instagram:          'instagram',
+  instagram_business: 'instagram',
+  'instagram-business': 'instagram',
+  facebook:           'facebook',
+  facebook_page:      'facebook',
+  'facebook-page':    'facebook',
+  twitter:            'twitter',
+  twitter_v2:         'twitter',
+  'twitter-v2':       'twitter',
+  linkedin:           'linkedin',
+  linkedin_company:   'linkedin',
+  pinterest:          'pinterest',
+  tiktok:             'tiktok',
+  googlebusiness:     'googlebusiness',
+  youtube:            'youtube',
+  mastodon:           'mastodon',
+};
+
 class BufferClient {
   constructor(apiKey) {
     this.apiKey = apiKey;
@@ -37,23 +57,35 @@ class BufferClient {
 
     const orgData = await this._gql(`
       query GetOrganizations {
-        account { organizations { id } }
+        account { organizations { id name } }
       }
     `);
-    const orgId = orgData?.account?.organizations?.[0]?.id;
-    if (!orgId) throw new Error('Could not resolve Buffer organization ID');
+    const org = orgData?.account?.organizations?.[0];
+    if (!org?.id) throw new Error('Could not resolve Buffer organization ID');
+    logger.info('[Buffer] Organization found', { orgId: org.id, orgName: org.name });
 
     const chData = await this._gql(`
       query GetChannels($organizationId: String!) {
         channels(organizationId: $organizationId) { id service name }
       }
-    `, { organizationId: orgId });
+    `, { organizationId: org.id });
+
+    const rawChannels = chData?.channels ?? [];
+    logger.info('[Buffer] Raw channels from API', {
+      count: rawChannels.length,
+      channels: rawChannels.map((c) => ({ service: c.service, name: c.name, id: c.id })),
+    });
 
     this._channelsByPlatform = {};
-    for (const ch of chData?.channels ?? []) {
-      this._channelsByPlatform[ch.service] = ch.id;
+    for (const ch of rawChannels) {
+      // Map Buffer's service name to our internal platform name
+      const platform = SERVICE_MAP[ch.service] || ch.service;
+      // First channel for a platform wins; don't overwrite
+      if (!this._channelsByPlatform[platform]) {
+        this._channelsByPlatform[platform] = ch.id;
+      }
     }
-    logger.info('[Buffer] Channels resolved', { platforms: Object.keys(this._channelsByPlatform) });
+    logger.info('[Buffer] Channel map built', { map: this._channelsByPlatform });
     return this._channelsByPlatform;
   }
 
@@ -62,14 +94,18 @@ class BufferClient {
       const channels = await this._resolveChannels();
       const channelId = channels[platform];
       if (!channelId) {
-        logger.warn(`[Buffer] No channel connected for ${platform}`);
+        logger.warn('[Buffer] No channel connected for platform', {
+          platform,
+          availablePlatforms: Object.keys(channels),
+        });
         return { success: false, reason: `No Buffer channel connected for ${platform}` };
       }
 
-      // Buffer new API field names (GraphQL schema as of 2025)
       const input = { channelId, text };
       if (scheduledAt) input.scheduledAt = new Date(scheduledAt).toISOString();
       if (mediaUrls.length) input.media = mediaUrls.slice(0, 4).map((url) => ({ url }));
+
+      logger.info('[Buffer] Sending CreatePost mutation', { platform, channelId, scheduledAt: input.scheduledAt, hasMedia: !!input.media });
 
       let data;
       try {
@@ -81,9 +117,9 @@ class BufferClient {
           }
         `, { input });
       } catch (gqlErr) {
-        // If field names are wrong the API returns a schema error — log clearly
-        logger.error('[Buffer] CreatePost mutation failed — check field names against Buffer GraphQL schema', {
-          platform, error: gqlErr.message,
+        logger.error('[Buffer] CreatePost mutation failed', {
+          platform, channelId, error: gqlErr.message,
+          hint: 'Check field names against Buffer GraphQL schema — scheduledAt, text, media, channelId',
         });
         return { success: false, error: gqlErr.message };
       }
@@ -93,27 +129,24 @@ class BufferClient {
         logger.warn('[Buffer] CreatePost returned no post ID', { platform, data: JSON.stringify(data) });
         return { success: false, error: 'Buffer returned no post ID' };
       }
-      logger.info('[Buffer] Post scheduled', { platform, id: post.id, status: post.status });
+      logger.info('[Buffer] Post scheduled successfully', { platform, id: post.id, status: post.status });
       return { success: true, id: post.id, status: post.status, platform };
     } catch (err) {
       logger.error('[Buffer] schedulePost failed', { platform, error: err.message });
       return { success: false, error: err.message };
     }
   }
+
+  // Returns connected channel info — used by the test endpoint
+  async getChannelInfo() {
+    const channels = await this._resolveChannels();
+    return channels;
+  }
 }
 
 // Instance cache keyed by API key — preserves per-key channel resolution cache
 const _instances = new Map();
 
-/**
- * Returns a BufferClient for the given tenant, using their stored API key
- * if they have one, otherwise falling back to the global BUFFER_API_KEY env var.
- *
- * Returns null if neither source has a key.
- *
- * @param {string} tenantId
- * @returns {Promise<BufferClient|null>}
- */
 async function getBufferClient(tenantId) {
   let apiKey = process.env.BUFFER_API_KEY;
 

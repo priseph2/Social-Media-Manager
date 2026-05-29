@@ -184,18 +184,40 @@ async function testCredentials(service, creds) {
   try {
     switch (service) {
       case 'buffer': {
+        // Step 1: verify API key and get org
         const res = await Promise.race([
           fetch('https://api.buffer.com', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${creds.apiKey}` },
-            body: JSON.stringify({ query: '{ account { organizations { id } } }' }),
+            body: JSON.stringify({ query: '{ account { organizations { id name } } }' }),
           }),
           timeout(10000),
         ]);
         const json = await res.json();
         if (json.errors?.length) return { ok: false, message: `Buffer: ${json.errors[0].message}` };
         const orgs = json?.data?.account?.organizations ?? [];
-        return { ok: true, message: `Buffer connected — ${orgs.length} organisation${orgs.length !== 1 ? 's' : ''} found.` };
+        if (!orgs.length) return { ok: false, message: 'Buffer: no organisations found on this account.' };
+
+        // Step 2: list connected channels
+        const orgId = orgs[0].id;
+        const chRes = await Promise.race([
+          fetch('https://api.buffer.com', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${creds.apiKey}` },
+            body: JSON.stringify({
+              query: 'query GetChannels($id: String!) { channels(organizationId: $id) { service name } }',
+              variables: { id: orgId },
+            }),
+          }),
+          timeout(10000),
+        ]);
+        const chJson = await chRes.json();
+        const channels = chJson?.data?.channels ?? [];
+        const channelList = channels.map((c) => `${c.service} (${c.name})`).join(', ') || 'none found';
+        return {
+          ok: true,
+          message: `Buffer connected — ${orgs.length} org, ${channels.length} channel${channels.length !== 1 ? 's' : ''}: ${channelList}`,
+        };
       }
 
       case 'mailchimp': {
