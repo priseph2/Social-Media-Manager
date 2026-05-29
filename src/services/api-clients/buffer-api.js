@@ -97,11 +97,16 @@ class BufferClient {
         return { success: false, reason: `No Buffer channel connected for ${platform}` };
       }
 
-      const input = { channelId, text };
-      if (scheduledAt) input.scheduledAt = new Date(scheduledAt).toISOString();
+      const input = {
+        channelId,
+        text,
+        schedulingType: scheduledAt ? 'scheduled' : 'queue',
+        mode: 'BUFFER',
+      };
+      if (scheduledAt) input.dueAt = new Date(scheduledAt).toISOString();
       if (mediaUrls.length) input.media = mediaUrls.slice(0, 4).map((url) => ({ url }));
 
-      logger.info('[Buffer] Sending CreatePost mutation', { platform, channelId, scheduledAt: input.scheduledAt, hasMedia: !!input.media, inputKeys: Object.keys(input) });
+      logger.info('[Buffer] Sending CreatePost mutation', { platform, channelId, dueAt: input.dueAt, hasMedia: !!input.media, inputKeys: Object.keys(input) });
 
       // Try the mutation; if it fails with a schema error, log the full raw response
       let rawRes;
