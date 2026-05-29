@@ -113,7 +113,10 @@ class BufferClient {
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.apiKey}` },
           body: JSON.stringify({
             query: `mutation CreatePost($input: CreatePostInput!) {
-              createPost(input: $input) { post { id status } }
+              createPost(input: $input) {
+                ... on PostActionSuccess { post { id status } }
+                ... on PostActionError   { message }
+              }
             }`,
             variables: { input },
           }),
@@ -135,7 +138,16 @@ class BufferClient {
         return { success: false, error: errMsg };
       }
 
-      const post = json.data?.createPost?.post;
+      const payload = json.data?.createPost;
+      if (payload?.message) {
+        logger.error('[Buffer] CreatePost action error', { platform, channelId, error: payload.message });
+        return { success: false, error: payload.message };
+      }
+      const post = payload?.post;
+      if (!post?.id) {
+        logger.warn('[Buffer] CreatePost returned no post ID', { platform, payload: JSON.stringify(payload) });
+        return { success: false, error: 'Buffer returned no post ID' };
+      }
       logger.info('[Buffer] Post scheduled successfully', { platform, id: post.id, status: post.status });
       return { success: true, id: post.id, status: post.status, platform };
     } catch (err) {
