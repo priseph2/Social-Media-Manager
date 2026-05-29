@@ -901,6 +901,45 @@ router.delete('/security/blocklist/:id', async (req, res, next) => {
 });
 
 /**
+ * GET /api/admin/buffer/schema
+ * Introspect Buffer's GraphQL schema to find SchedulingType and ShareMode enum values.
+ */
+router.get('/buffer/schema', async (req, res, next) => {
+  try {
+    const apiKey = process.env.BUFFER_API_KEY;
+    if (!apiKey) return res.json({ ok: false, message: 'No global BUFFER_API_KEY set' });
+
+    const r = await fetch('https://api.buffer.com', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        query: `{
+          __type(name: "CreatePostInput") { inputFields { name type { name kind ofType { name kind } } } }
+          schedulingType: __type(name: "SchedulingType") { enumValues { name } }
+          shareMode: __type(name: "ShareMode") { enumValues { name } }
+        }`,
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+    const json = await r.json();
+    if (json.errors?.length) return res.json({ ok: false, errors: json.errors });
+
+    res.json({
+      ok: true,
+      createPostInputFields: json.data?.__type?.inputFields?.map((f) => ({
+        name: f.name,
+        type: f.type?.name || f.type?.ofType?.name,
+        required: f.type?.kind === 'NON_NULL',
+      })),
+      schedulingTypeValues: json.data?.schedulingType?.enumValues?.map((e) => e.name),
+      shareModeValues: json.data?.shareMode?.enumValues?.map((e) => e.name),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * GET /api/admin/tenants/:id/buffer/test
  * Test Buffer connection for a specific tenant — verifies their API key and lists connected channels.
  */
