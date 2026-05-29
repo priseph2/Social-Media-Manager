@@ -128,13 +128,15 @@ router.put('/me/credentials/:service', async (req, res, next) => {
 
     // Record platform connection
     const supabase = getSupabaseClient();
-    await supabase.from('platform_connections').upsert({
-      tenant_id: req.tenantId,
-      platform: service,
-      status: 'connected',
-      metadata: { platformType },
-      connected_at: new Date().toISOString(),
-    }, { onConflict: 'tenant_id,platform' }).catch(() => {});
+    try {
+      await supabase.from('platform_connections').upsert({
+        tenant_id: req.tenantId,
+        platform: service,
+        status: 'connected',
+        metadata: { platformType },
+        connected_at: new Date().toISOString(),
+      }, { onConflict: 'tenant_id,platform' });
+    } catch { /* non-critical — credential already saved above */ }
 
     res.json({ ok: true });
   } catch (err) {

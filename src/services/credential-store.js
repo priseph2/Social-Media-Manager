@@ -52,12 +52,12 @@ async function setCredentials(tenantId, service, credentials, platformType = nul
     );
 
   if (error) throw error;
-  _cache.delete(`${tenantId}:${service}`);
+  _cache.delete(JSON.stringify([tenantId, service]));
   logger.info(`Credentials updated for tenant ${tenantId} service ${service}`);
 }
 
 function invalidateCredentialCache(tenantId, service) {
-  _cache.delete(`${tenantId}:${service}`);
+  _cache.delete(JSON.stringify([tenantId, service]));
 }
 
 module.exports = { getCredentials, setCredentials, invalidateCredentialCache };
