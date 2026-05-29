@@ -184,12 +184,12 @@ async function testCredentials(service, creds) {
   try {
     switch (service) {
       case 'buffer': {
-        // Step 1: verify API key and get org
+        // Single query — org info + channels together
         const res = await Promise.race([
           fetch('https://api.buffer.com', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${creds.apiKey}` },
-            body: JSON.stringify({ query: '{ account { organizations { id name } } }' }),
+            body: JSON.stringify({ query: '{ account { organizations { id name } channels { service name } } }' }),
           }),
           timeout(10000),
         ]);
@@ -197,22 +197,7 @@ async function testCredentials(service, creds) {
         if (json.errors?.length) return { ok: false, message: `Buffer: ${json.errors[0].message}` };
         const orgs = json?.data?.account?.organizations ?? [];
         if (!orgs.length) return { ok: false, message: 'Buffer: no organisations found on this account.' };
-
-        // Step 2: list connected channels
-        const orgId = orgs[0].id;
-        const chRes = await Promise.race([
-          fetch('https://api.buffer.com', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${creds.apiKey}` },
-            body: JSON.stringify({
-              query: 'query GetChannels($id: String!) { channels(organizationId: $id) { service name } }',
-              variables: { id: orgId },
-            }),
-          }),
-          timeout(10000),
-        ]);
-        const chJson = await chRes.json();
-        const channels = chJson?.data?.channels ?? [];
+        const channels = json?.data?.account?.channels ?? [];
         const channelList = channels.map((c) => `${c.service} (${c.name})`).join(', ') || 'none found';
         return {
           ok: true,

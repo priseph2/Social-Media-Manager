@@ -55,22 +55,20 @@ class BufferClient {
   async _resolveChannels() {
     if (this._channelsByPlatform) return this._channelsByPlatform;
 
-    const orgData = await this._gql(`
-      query GetOrganizations {
-        account { organizations { id name } }
+    // Single query: get org info + channels in one call
+    const data = await this._gql(`
+      query GetAccountChannels {
+        account {
+          organizations { id name }
+          channels { id service name }
+        }
       }
     `);
-    const org = orgData?.account?.organizations?.[0];
-    if (!org?.id) throw new Error('Could not resolve Buffer organization ID');
-    logger.info('[Buffer] Organization found', { orgId: org.id, orgName: org.name });
 
-    const chData = await this._gql(`
-      query GetChannels($organizationId: String!) {
-        channels(organizationId: $organizationId) { id service name }
-      }
-    `, { organizationId: org.id });
+    const org = data?.account?.organizations?.[0];
+    logger.info('[Buffer] Organization found', { orgId: org?.id, orgName: org?.name });
 
-    const rawChannels = chData?.channels ?? [];
+    const rawChannels = data?.account?.channels ?? [];
     logger.info('[Buffer] Raw channels from API', {
       count: rawChannels.length,
       channels: rawChannels.map((c) => ({ service: c.service, name: c.name, id: c.id })),
@@ -78,9 +76,7 @@ class BufferClient {
 
     this._channelsByPlatform = {};
     for (const ch of rawChannels) {
-      // Map Buffer's service name to our internal platform name
       const platform = SERVICE_MAP[ch.service] || ch.service;
-      // First channel for a platform wins; don't overwrite
       if (!this._channelsByPlatform[platform]) {
         this._channelsByPlatform[platform] = ch.id;
       }

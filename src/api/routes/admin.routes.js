@@ -930,15 +930,11 @@ router.get('/tenants/:id/buffer/test', async (req, res, next) => {
       return j.data;
     };
 
-    const orgData = await gql('{ account { organizations { id name } } }');
-    const org = orgData?.account?.organizations?.[0];
+    const accountData = await gql('{ account { organizations { id name } channels { id service name } } }');
+    const org = accountData?.account?.organizations?.[0];
     if (!org) return res.json({ ok: false, message: `Buffer: no organisations found (${keySource})` });
 
-    const chData = await gql(
-      'query($id:String!){channels(organizationId:$id){service name id}}',
-      { id: org.id }
-    );
-    const channels = chData?.channels ?? [];
+    const channels = accountData?.account?.channels ?? [];
 
     res.json({
       ok: true,
