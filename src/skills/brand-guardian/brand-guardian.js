@@ -34,7 +34,13 @@ When reviewing content you will:
 - Give actionable feedback, not vague criticism
 
 Be discerning but not overly restrictive. Reject only when content would genuinely harm the brand or violate compliance rules.
-Approve with minor suggestions when content is strong but could be polished.`;
+Approve with minor suggestions when content is strong but could be polished.
+
+IMPORTANT — requiresHumanApproval: Set this to true ONLY for genuinely borderline cases:
+- Content that could cause legal or reputational damage but you are unsure whether to reject
+- Content referencing real people, competitors, or sensitive current events
+- Content with factual claims you cannot verify
+Do NOT set requiresHumanApproval for: minor tone suggestions, hashtag recommendations, general style polish, or routine compliance reminders like #ad that don't apply to this content. Approved and approved_with_suggestions content with minor notes should have requiresHumanApproval: false.`;
 }
 
 const REVIEW_TOOL = {
@@ -52,7 +58,7 @@ const REVIEW_TOOL = {
       strengths: { type: 'array', items: { type: 'string' } },
       issues: { type: 'array', items: { type: 'string' } },
       revisedContent: { type: 'string', description: 'Improved version (only when needs_revision)' },
-      requiresHumanApproval: { type: 'boolean' },
+      requiresHumanApproval: { type: 'boolean', description: 'true ONLY for genuinely risky/borderline content (legal risk, unverifiable claims, sensitive topics). false for approved/approved_with_suggestions with only minor style or hashtag notes.' },
     },
     required: ['decision', 'qualityScore', 'summary', 'strengths', 'issues', 'requiresHumanApproval'],
   },
@@ -197,7 +203,13 @@ class BrandGuardian extends BaseSkill {
       });
     }
 
-    if (!approved || requiresHumanApproval) return;
+    if (!approved) return;
+
+    // If AI flagged for human review, always queue for approval regardless of tenant gate
+    if (requiresHumanApproval) {
+      await this._saveForHumanApproval(job, result);
+      return;
+    }
 
     // Check if this tenant requires a human approval gate before publishing
     const needsGate = await this._tenantRequiresApprovalGate(job.data.tenantId);

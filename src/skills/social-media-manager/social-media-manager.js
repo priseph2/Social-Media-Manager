@@ -176,6 +176,8 @@ class SocialMediaManager extends BaseSkill {
       const bufferClient = await getBufferClient(tenantId);
       if (bufferClient) {
         bufferResult = await bufferClient.schedulePost({ platform, text: adapted.text, mediaUrls: imageUrl ? [imageUrl] : [], scheduledAt: postTime });
+      } else {
+        this.log.warn(`[schedulePost] No Buffer client for tenant ${tenantId} — no API key configured`, { platform, jobId: job.id });
       }
     }
 
@@ -418,7 +420,7 @@ Focus on what matters for luxury brand positioning and West African audience beh
   }
 
   async _logScheduledPost({ tenantId, platform, contentType, scheduledAt, content, hashtags, originalJobId }) {
-    await supabaseQuery((db) =>
+    const result = await supabaseQuery((db) =>
       db.from('content_schedule').insert({
         tenant_id: tenantId,
         platform,
@@ -429,6 +431,11 @@ Focus on what matters for luxury brand positioning and West African audience beh
         mongo_ref: originalJobId,
       })
     );
+    if (result === null) {
+      this.log.error('[schedulePost] Failed to insert into content_schedule — check Supabase logs', { tenantId, platform });
+    } else {
+      this.log.info('[schedulePost] Calendar entry created', { tenantId, platform, scheduledAt });
+    }
   }
 }
 
