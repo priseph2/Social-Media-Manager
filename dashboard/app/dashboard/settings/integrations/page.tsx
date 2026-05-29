@@ -9,7 +9,7 @@ interface IntegrationField { key: string; label: string; type: string; }
 interface Integration { id: string; name: string; desc: string; category: string; isEcommerce?: boolean; fields: IntegrationField[]; }
 
 const INTEGRATIONS: Integration[] = [
-  { id: 'ayrshare', name: 'Ayrshare', desc: 'Social media scheduling — posts to Twitter/X, LinkedIn, Pinterest and more', category: 'Social', fields: [{ key: 'apiKey', label: 'API Key', type: 'password' }] },
+  { id: 'buffer', name: 'Buffer', desc: 'Social media scheduling — posts to Twitter/X, LinkedIn, Pinterest and more', category: 'Social', fields: [{ key: 'apiKey', label: 'API Key', type: 'password' }] },
   { id: 'mailchimp', name: 'Mailchimp', desc: 'Email marketing', category: 'Email', fields: [{ key: 'apiKey', label: 'API Key', type: 'password' }, { key: 'serverPrefix', label: 'Server Prefix (e.g. us1)', type: 'text' }] },
   { id: 'ecommerce', name: 'E-commerce', desc: 'Shopify, WooCommerce, BigCommerce, Wix', category: 'Store', isEcommerce: true, fields: [] },
   { id: 'meta', name: 'Meta / Instagram', desc: 'Facebook & Instagram API', category: 'Social', fields: [{ key: 'accessToken', label: 'Access Token', type: 'password' }, { key: 'pageId', label: 'Page ID', type: 'text' }] },

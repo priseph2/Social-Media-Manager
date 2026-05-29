@@ -8,7 +8,7 @@ const { analyzeComment, analyzeComments } = require('./sentiment-analyzer');
 const { eventBus, EVENTS } = require('../../services/messaging/event-emitter');
 const { enqueue } = require('../../orchestrator/message-queue');
 const { supabaseQuery } = require('../../services/database/supabase-client');
-const ayrshareApi = require('../../services/api-clients/ayrshare-api');
+const bufferApi = require('../../services/api-clients/buffer-api');
 const metaApi = require('../../services/api-clients/meta-api');
 const tiktokApi = require('../../services/api-clients/tiktok-api');
 const { SKILLS, QUEUES, PRIORITY, MODELS } = require('../../config/constants');
@@ -145,9 +145,9 @@ class SocialMediaManager extends BaseSkill {
     const postTime = scheduledAt || (await this._getOptimalPostTime(platform));
     const scheduledTs = postTime ? Math.floor(new Date(postTime).getTime() / 1000) : null;
 
-    // ── Native publishing (Meta/TikTok) with Ayrshare fallback ───────────────
+    // ── Native publishing (Meta/TikTok) with Buffer fallback ──────────────────
     let nativeResult = null;
-    let ayrshareResult = { success: false };
+    let bufferResult = { success: false };
 
     if (platform === 'instagram' && metaApi.available && imageUrl) {
       nativeResult = await metaApi.publishInstagramPost({
@@ -171,9 +171,9 @@ class SocialMediaManager extends BaseSkill {
       if (nativeResult) this.log.info(`TikTok native publish: ${nativeResult.success ? 'ok' : nativeResult.reason || nativeResult.error}`, { jobId: job.id });
     }
 
-    // Fall back to Ayrshare if native posting was skipped or failed
+    // Fall back to Buffer if native posting was skipped or failed
     if (!nativeResult?.success) {
-      ayrshareResult = await ayrshareApi.schedulePost({ platform, text: adapted.text, mediaUrls: imageUrl ? [imageUrl] : [], scheduledAt: postTime });
+      bufferResult = await bufferApi.schedulePost({ platform, text: adapted.text, mediaUrls: imageUrl ? [imageUrl] : [], scheduledAt: postTime });
     }
 
     // Log to Supabase content_schedule table
@@ -189,11 +189,11 @@ class SocialMediaManager extends BaseSkill {
     this.log.info(`Post handled for ${platform} at ${postTime}`, {
       jobId: job.id,
       nativeSuccess: nativeResult?.success ?? false,
-      ayrshareSuccess: ayrshareResult.success,
+      bufferSuccess: bufferResult.success,
     });
 
     if (tenantId) {
-      const scheduled = nativeResult?.success || ayrshareResult.success;
+      const scheduled = nativeResult?.success || bufferResult.success;
       await notify(tenantId, {
         type: 'post_scheduled',
         title: scheduled ? `Post scheduled on ${platform}` : `Post scheduling issue on ${platform}`,
@@ -211,7 +211,7 @@ class SocialMediaManager extends BaseSkill {
       contentLength: adapted.text.length,
       hashtagCount: hashtags.length,
       nativePublished: nativeResult?.success ?? false,
-      ayrshareScheduled: ayrshareResult.success,
+      bufferScheduled: bufferResult.success,
       jobId: job.id,
     };
   }

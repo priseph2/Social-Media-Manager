@@ -2,120 +2,132 @@
 
 const logger = require('../../utils/logger');
 
+const GQL_ENDPOINT = 'https://api.buffer.com';
+
 class BufferAPI {
   constructor() {
-    this.accessToken = process.env.BUFFER_ACCESS_TOKEN;
-    this.baseUrl = 'https://api.bufferapp.com/1';
-    this.profileIds = {
-      instagram: process.env.BUFFER_PROFILE_ID_INSTAGRAM,
-      facebook: process.env.BUFFER_PROFILE_ID_FACEBOOK,
-      twitter: process.env.BUFFER_PROFILE_ID_TWITTER,
-      tiktok: process.env.BUFFER_PROFILE_ID_TIKTOK,
-      pinterest: process.env.BUFFER_PROFILE_ID_PINTEREST,
-    };
-    this.available = Boolean(this.accessToken);
-    if (!this.available) logger.warn('Buffer API not configured — social scheduling disabled.');
+    this.apiKey = process.env.BUFFER_API_KEY;
+    this.available = Boolean(this.apiKey);
+    if (!this.available) logger.warn('Buffer API not configured — social scheduling disabled for non-native platforms.');
+
+    // Channel IDs resolved once and cached for the process lifetime
+    this._channelsByPlatform = null;
   }
 
-  async _request(path, method = 'GET', params = null) {
-    const { default: fetch } = await import('node-fetch').catch(() => ({ default: globalThis.fetch }));
-
-    let url = `${this.baseUrl}${path}`;
+  async _gql(query, variables = {}) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-    const opts = {
-      method,
-      headers: { Authorization: `Bearer ${this.accessToken}` },
-      signal: controller.signal,
-    };
-
-    if (params) {
-      if (method === 'GET') {
-        url += '?' + new URLSearchParams(params).toString();
-      } else {
-        opts.headers['Content-Type'] = 'application/x-www-form-urlencoded';
-        opts.body = new URLSearchParams(params).toString();
-      }
-    }
-
+    const timeout = setTimeout(() => controller.abort(), 15000);
     try {
-      const res = await fetch(url, opts);
-      if (!res.ok) throw new Error(`Buffer ${method} ${path} → ${res.status}`);
-      return res.json();
+      const res = await fetch(GQL_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.apiKey}`,
+        },
+        body: JSON.stringify({ query, variables }),
+        signal: controller.signal,
+      });
+      const json = await res.json();
+      if (json.errors?.length) throw new Error(json.errors[0].message);
+      return json.data;
     } finally {
       clearTimeout(timeout);
     }
   }
 
   /**
-   * Schedule a post via Buffer.
-   *
-   * @param {object} opts
-   * @param {string} opts.platform  - instagram | facebook | twitter | tiktok | pinterest
-   * @param {string} opts.text      - post caption
-   * @param {string[]} opts.mediaUrls - optional media attachment URLs
-   * @param {string|Date} opts.scheduledAt - ISO 8601 datetime or Date object
-   * @returns {{ success: boolean, updateId?: string, scheduled?: boolean }}
+   * Returns the Buffer organization ID for this API key.
    */
-  async schedulePost({ platform, text, mediaUrls = [], scheduledAt }) {
-    if (!this.available) return { success: false, reason: 'Buffer not configured' };
-    const profileId = this.profileIds[platform];
-    if (!profileId) return { success: false, reason: `No Buffer profile ID for ${platform}` };
-
-    try {
-      const scheduledAtTs = scheduledAt
-        ? Math.floor(new Date(scheduledAt).getTime() / 1000)
-        : null;
-
-      const params = {
-        profile_ids: profileId,
-        text,
-        scheduled_at: scheduledAtTs ? String(scheduledAtTs) : undefined,
-      };
-
-      // Attach media if provided (Buffer accepts up to 4 for carousel)
-      mediaUrls.slice(0, 4).forEach((url, i) => {
-        params[`media[photo${i > 0 ? i : ''}]`] = url;
-      });
-
-      const data = await this._request('/updates/create.json', 'POST', params);
-      logger.info('[Buffer] Post scheduled', { platform, updateId: data?.updates?.[0]?.id });
-      return {
-        success: data?.success !== false,
-        updateId: data?.updates?.[0]?.id,
-        scheduled: true,
-        platform,
-        scheduledAt,
-      };
-    } catch (err) {
-      logger.error('[Buffer] schedulePost failed', { platform, error: err.message });
-      return { success: false, error: err.message };
-    }
+  async getOrganizationId() {
+    const data = await this._gql(`
+      query GetOrganizations {
+        account {
+          organizations {
+            id
+          }
+        }
+      }
+    `);
+    return data?.account?.organizations?.[0]?.id ?? null;
   }
 
   /**
-   * Fetch sent posts for a profile within a date range.
+   * Loads all connected channels for the org and returns a map of
+   * { instagram: 'ch_xxx', twitter: 'ch_xxx', ... }
+   */
+  async _resolveChannels() {
+    if (this._channelsByPlatform) return this._channelsByPlatform;
+
+    const orgId = await this.getOrganizationId();
+    if (!orgId) throw new Error('Could not resolve Buffer organization ID');
+
+    const data = await this._gql(`
+      query GetChannels($organizationId: String!) {
+        channels(organizationId: $organizationId) {
+          id
+          service
+          name
+        }
+      }
+    `, { organizationId: orgId });
+
+    const channels = data?.channels ?? [];
+    this._channelsByPlatform = {};
+    for (const ch of channels) {
+      // Buffer service names: 'instagram', 'facebook', 'twitter', 'linkedin', 'tiktok', 'pinterest', 'youtube'
+      this._channelsByPlatform[ch.service] = ch.id;
+    }
+
+    logger.info('[Buffer] Channels resolved', { platforms: Object.keys(this._channelsByPlatform) });
+    return this._channelsByPlatform;
+  }
+
+  /**
+   * Schedule or immediately publish a post via Buffer's new GraphQL API.
    *
    * @param {object} opts
-   * @param {string} opts.profileId - Buffer profile ID
-   * @param {string|Date} [opts.since] - start date
-   * @param {string|Date} [opts.until] - end date
-   * @param {number} [opts.count=50]   - max results
+   * @param {string}   opts.platform     - instagram | facebook | twitter | linkedin | tiktok | pinterest
+   * @param {string}   opts.text         - post caption
+   * @param {string[]} [opts.mediaUrls]  - public image URLs (optional)
+   * @param {string|Date} [opts.scheduledAt] - ISO 8601; omit to add to queue
+   * @returns {{ success: boolean, id?: string }}
    */
-  async getAnalytics({ profileId, since, until, count = 50 } = {}) {
-    if (!this.available) return null;
-    if (!profileId) return null;
+  async schedulePost({ platform, text, mediaUrls = [], scheduledAt }) {
+    if (!this.available) return { success: false, reason: 'Buffer not configured' };
 
     try {
-      const params = { count: String(count) };
-      if (since) params.since = String(Math.floor(new Date(since).getTime() / 1000));
-      if (until) params.until = String(Math.floor(new Date(until).getTime() / 1000));
+      const channels = await this._resolveChannels();
+      const channelId = channels[platform];
+      if (!channelId) {
+        logger.warn(`[Buffer] No channel connected for ${platform}`);
+        return { success: false, reason: `No Buffer channel connected for ${platform}` };
+      }
 
-      const data = await this._request(`/profiles/${encodeURIComponent(profileId)}/updates/sent.json`, 'GET', params);
-      return data?.updates ?? [];
+      const input = {
+        channelId,
+        text,
+      };
+
+      if (scheduledAt) input.scheduledAt = new Date(scheduledAt).toISOString();
+      if (mediaUrls.length) input.mediaUrls = mediaUrls.slice(0, 4);
+
+      const data = await this._gql(`
+        mutation CreatePost($input: CreatePostInput!) {
+          createPost(input: $input) {
+            post {
+              id
+              status
+            }
+          }
+        }
+      `, { input });
+
+      const post = data?.createPost?.post;
+      logger.info('[Buffer] Post scheduled', { platform, id: post?.id, status: post?.status });
+      return { success: Boolean(post?.id), id: post?.id, status: post?.status, platform };
     } catch (err) {
-      logger.warn('[Buffer] getAnalytics failed', { profileId, error: err.message });
-      return null;
+      logger.error('[Buffer] schedulePost failed', { platform, error: err.message });
+      return { success: false, error: err.message };
     }
   }
 }
