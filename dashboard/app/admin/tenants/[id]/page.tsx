@@ -67,6 +67,12 @@ export default function TenantDetailPage() {
   // Impersonate state
   const [impersonating, setImpersonating] = useState(false);
 
+  // Buffer per-tenant state
+  const [bufferTesting, setBufferTesting] = useState(false);
+  const [bufferTestResult, setBufferTestResult] = useState<{ ok: boolean; message: string; keySource?: string; channels?: { service: string; name: string }[] } | null>(null);
+  const [bufferSyncing, setBufferSyncing] = useState(false);
+  const [bufferSyncResult, setBufferSyncResult] = useState<{ synced: number; failed: number; message?: string } | null>(null);
+
   useEffect(() => {
     async function load() {
       try {
@@ -145,6 +151,38 @@ export default function TenantDetailPage() {
       setSaveMsg(err instanceof Error ? err.message : 'Save failed');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function testBufferForTenant() {
+    setBufferTesting(true);
+    setBufferTestResult(null);
+    try {
+      const res = await timedFetch(`${API}/api/admin/tenants/${id}/buffer/test`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setBufferTestResult(await res.json());
+    } catch (e) {
+      setBufferTestResult({ ok: false, message: e instanceof Error ? e.message : 'Test failed' });
+    } finally {
+      setBufferTesting(false);
+    }
+  }
+
+  async function syncBufferForTenant(dryRun: boolean) {
+    setBufferSyncing(true);
+    setBufferSyncResult(null);
+    try {
+      const res = await timedFetch(`${API}/api/admin/buffer/sync-scheduled?tenantId=${id}${dryRun ? '&dryRun=true' : ''}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      setBufferSyncResult(json);
+    } catch (e) {
+      setBufferSyncResult({ synced: 0, failed: 0, message: e instanceof Error ? e.message : 'Sync failed' });
+    } finally {
+      setBufferSyncing(false);
     }
   }
 
@@ -320,7 +358,7 @@ export default function TenantDetailPage() {
       )}
 
       {tab === 'Connections' && (
-        <div>
+        <div className="space-y-4">
           {!connections.length ? (
             <div className="text-center py-12 text-slate-400">
               <p className="text-sm">No integrations connected yet.</p>
@@ -360,6 +398,65 @@ export default function TenantDetailPage() {
                   </div>
                 );
               })}
+            </div>
+          )}
+
+          {/* Buffer tools — shown when tenant has Buffer connected */}
+          {connections.some((c) => c.platform === 'buffer') && (
+            <div className="bg-white rounded-xl border border-slate-200 p-5">
+              <p className="text-sm font-semibold text-slate-800 mb-1">Buffer tools</p>
+              <p className="text-xs text-slate-500 mb-4">
+                Test this tenant&apos;s Buffer connection and sync their scheduled posts.
+              </p>
+
+              <div className="flex flex-wrap gap-2 mb-4">
+                <button
+                  onClick={testBufferForTenant}
+                  disabled={bufferTesting}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition-colors"
+                >
+                  {bufferTesting ? 'Testing…' : 'Test connection'}
+                </button>
+                <button
+                  onClick={() => syncBufferForTenant(true)}
+                  disabled={bufferSyncing}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition-colors"
+                >
+                  {bufferSyncing ? 'Running…' : 'Dry run sync'}
+                </button>
+                <button
+                  onClick={() => syncBufferForTenant(false)}
+                  disabled={bufferSyncing}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                >
+                  {bufferSyncing ? 'Syncing…' : 'Push to Buffer'}
+                </button>
+              </div>
+
+              {bufferTestResult && (
+                <div className={`rounded-lg px-3 py-2 text-xs mb-3 ${bufferTestResult.ok ? 'bg-emerald-50 border border-emerald-100 text-emerald-800' : 'bg-red-50 border border-red-100 text-red-700'}`}>
+                  <p className="font-medium">{bufferTestResult.ok ? '✓' : '✗'} {bufferTestResult.message}</p>
+                  {bufferTestResult.keySource && (
+                    <p className="text-slate-500 mt-0.5">Using: {bufferTestResult.keySource}</p>
+                  )}
+                  {bufferTestResult.channels && bufferTestResult.channels.length > 0 && (
+                    <div className="mt-2 space-y-0.5">
+                      {bufferTestResult.channels.map((ch) => (
+                        <p key={ch.service} className="text-slate-600">• {ch.service} — {ch.name}</p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {bufferSyncResult && (
+                <div className="rounded-lg px-3 py-2 text-xs bg-slate-50 border border-slate-100 text-slate-700">
+                  {bufferSyncResult.message
+                    ? <p>{bufferSyncResult.message}</p>
+                    : <p>{bufferSyncResult.synced} synced · {bufferSyncResult.failed} failed</p>
+                  }
+                </div>
+              )}
             </div>
           )}
         </div>

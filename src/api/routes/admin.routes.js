@@ -901,27 +901,85 @@ router.delete('/security/blocklist/:id', async (req, res, next) => {
 });
 
 /**
+ * GET /api/admin/tenants/:id/buffer/test
+ * Test Buffer connection for a specific tenant — verifies their API key and lists connected channels.
+ */
+router.get('/tenants/:id/buffer/test', async (req, res, next) => {
+  try {
+    const { getCredentials } = require('../../services/credential-store');
+    const tenantId = req.params.id;
+
+    const creds = await getCredentials(tenantId, 'buffer').catch(() => null);
+    const apiKey = creds?.apiKey || process.env.BUFFER_API_KEY;
+    if (!apiKey) {
+      return res.json({ ok: false, message: 'No Buffer API key configured for this tenant and no global fallback set.' });
+    }
+
+    const keySource = creds?.apiKey ? 'tenant key' : 'global fallback key';
+
+    // Verify key and list channels
+    const gql = async (query, variables = {}) => {
+      const r = await fetch('https://api.buffer.com', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ query, variables }),
+        signal: AbortSignal.timeout(10000),
+      });
+      const j = await r.json();
+      if (j.errors?.length) throw new Error(j.errors[0].message);
+      return j.data;
+    };
+
+    const orgData = await gql('{ account { organizations { id name } } }');
+    const org = orgData?.account?.organizations?.[0];
+    if (!org) return res.json({ ok: false, message: `Buffer: no organisations found (${keySource})` });
+
+    const chData = await gql(
+      'query($id:String!){channels(organizationId:$id){service name id}}',
+      { id: org.id }
+    );
+    const channels = chData?.channels ?? [];
+
+    res.json({
+      ok: true,
+      keySource,
+      org: { id: org.id, name: org.name },
+      channels: channels.map((c) => ({ service: c.service, name: c.name, id: c.id })),
+      message: `Connected via ${keySource} — ${channels.length} channel${channels.length !== 1 ? 's' : ''} found`,
+    });
+  } catch (err) {
+    res.json({ ok: false, message: err.message || 'Buffer test failed' });
+  }
+});
+
+/**
  * POST /api/admin/buffer/sync-scheduled
  * Push all future scheduled posts to Buffer for every tenant that has a Buffer API key.
  * Safe to run multiple times — skips rows that already have a buffer_post_id.
  *
  * Query params:
- *   ?dryRun=true   — resolve channels and report what would be sent, without actually posting
+ *   ?dryRun=true     — preview what would be sent without posting
+ *   ?tenantId=<uuid> — limit sync to a single tenant
  */
 router.post('/buffer/sync-scheduled', async (req, res, next) => {
   try {
     const dryRun = req.query.dryRun === 'true';
+    const filterTenantId = req.query.tenantId || null;
     const db = getSupabaseClient();
     if (!db) return res.status(503).json({ error: 'Database unavailable' });
 
-    // Fetch all future scheduled posts that haven't been pushed to Buffer yet
-    const { data: posts, error } = await db
+    // Fetch future scheduled posts that haven't been pushed to Buffer yet
+    let query = db
       .from('content_schedule')
       .select('id, tenant_id, platform, content, scheduled_at, status, buffer_post_id')
       .eq('status', 'scheduled')
       .is('buffer_post_id', null)
       .gt('scheduled_at', new Date().toISOString())
       .order('scheduled_at', { ascending: true });
+
+    if (filterTenantId) query = query.eq('tenant_id', filterTenantId);
+
+    const { data: posts, error } = await query;
 
     if (error) throw error;
     if (!posts?.length) return res.json({ synced: 0, skipped: 0, failed: 0, message: 'No un-synced future posts found.' });
