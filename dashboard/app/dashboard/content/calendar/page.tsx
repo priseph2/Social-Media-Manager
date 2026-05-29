@@ -256,9 +256,9 @@ export default function CalendarPage() {
               {/* Empty state */}
               {items.length === 0 && (
                 <div className="py-10 px-6 text-center border-t border-slate-100">
-                  <p className="text-sm text-slate-500">No content scheduled for this month.</p>
+                  <p className="text-sm text-slate-500">No content scheduled for {MONTH_NAMES[month]}.</p>
                   <p className="text-xs text-slate-400 mt-1">
-                    Use the content generator to create and schedule posts.
+                    Posts are scheduled for the next optimal weekday — try clicking <strong>Next →</strong> to see upcoming months.
                   </p>
                 </div>
               )}
