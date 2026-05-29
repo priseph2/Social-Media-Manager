@@ -66,21 +66,35 @@ class BufferClient {
         return { success: false, reason: `No Buffer channel connected for ${platform}` };
       }
 
+      // Buffer new API field names (GraphQL schema as of 2025)
       const input = { channelId, text };
       if (scheduledAt) input.scheduledAt = new Date(scheduledAt).toISOString();
-      if (mediaUrls.length) input.mediaUrls = mediaUrls.slice(0, 4);
+      if (mediaUrls.length) input.media = mediaUrls.slice(0, 4).map((url) => ({ url }));
 
-      const data = await this._gql(`
-        mutation CreatePost($input: CreatePostInput!) {
-          createPost(input: $input) {
-            post { id status }
+      let data;
+      try {
+        data = await this._gql(`
+          mutation CreatePost($input: CreatePostInput!) {
+            createPost(input: $input) {
+              post { id status }
+            }
           }
-        }
-      `, { input });
+        `, { input });
+      } catch (gqlErr) {
+        // If field names are wrong the API returns a schema error — log clearly
+        logger.error('[Buffer] CreatePost mutation failed — check field names against Buffer GraphQL schema', {
+          platform, error: gqlErr.message,
+        });
+        return { success: false, error: gqlErr.message };
+      }
 
       const post = data?.createPost?.post;
-      logger.info('[Buffer] Post scheduled', { platform, id: post?.id });
-      return { success: Boolean(post?.id), id: post?.id, status: post?.status, platform };
+      if (!post?.id) {
+        logger.warn('[Buffer] CreatePost returned no post ID', { platform, data: JSON.stringify(data) });
+        return { success: false, error: 'Buffer returned no post ID' };
+      }
+      logger.info('[Buffer] Post scheduled', { platform, id: post.id, status: post.status });
+      return { success: true, id: post.id, status: post.status, platform };
     } catch (err) {
       logger.error('[Buffer] schedulePost failed', { platform, error: err.message });
       return { success: false, error: err.message };

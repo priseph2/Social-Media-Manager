@@ -181,6 +181,7 @@ class SocialMediaManager extends BaseSkill {
 
     // Log to Supabase content_schedule table
     await this._logScheduledPost({
+      tenantId,
       platform,
       contentType,
       scheduledAt: postTime,
@@ -416,9 +417,10 @@ Focus on what matters for luxury brand positioning and West African audience beh
     return postDate.toISOString();
   }
 
-  async _logScheduledPost({ platform, contentType, scheduledAt, content, hashtags, originalJobId }) {
+  async _logScheduledPost({ tenantId, platform, contentType, scheduledAt, content, hashtags, originalJobId }) {
     await supabaseQuery((db) =>
       db.from('content_schedule').insert({
+        tenant_id: tenantId,
         platform,
         content_type: contentType,
         scheduled_at: scheduledAt,
