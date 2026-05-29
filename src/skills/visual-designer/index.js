@@ -37,6 +37,12 @@ class VisualDesigner extends BaseSkill {
         return { skipped: true, reason: 'not_approved' };
       }
 
+      // Refresh timestamp now that the worker has picked up the job (removes queue-wait from elapsed time shown in UI)
+      await Content.findByIdAndUpdate(contentId, {
+        imageStatus: 'generating',
+        imageGeneratingAt: new Date(),
+      }).catch(() => {});
+
       // 2. Load brand config
       const brandConfig = await this._getBrandConfig(tenantId);
 
@@ -65,6 +71,7 @@ class VisualDesigner extends BaseSkill {
         imageModel: model,
         imageAspectRatio: aspectRatio,
         imageStatus: 'generated',
+        imageGeneratingAt: null,
       });
 
       // 8. Record image usage (fire-and-forget)

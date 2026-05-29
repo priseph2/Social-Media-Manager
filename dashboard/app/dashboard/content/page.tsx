@@ -27,6 +27,7 @@ interface ScheduledPost {
   imageUrl?: string;
   imageStatus?: string;
   imageModel?: string;
+  imageGeneratingAt?: string;
 }
 
 interface Localisation {
@@ -145,6 +146,57 @@ function Spinner() {
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
     </svg>
+  );
+}
+
+function ImageGenerationProgress({ since }: { since: string | undefined }) {
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    const start = since ? new Date(since).getTime() : Date.now();
+    const tick = () => setElapsed(Math.floor((Date.now() - start) / 1000));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [since]);
+
+  const fmt = (s: number) => s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
+  const isStuck = elapsed >= 180;
+  const isSlow  = elapsed >= 90;
+  // Progress bar fills over 90s then holds at 95% to indicate "still working"
+  const pct = isStuck ? 100 : Math.min(95, (elapsed / 90) * 100);
+
+  if (isStuck) {
+    return (
+      <div className="space-y-1.5">
+        <p className="text-xs text-amber-700 font-medium flex items-center gap-1.5">
+          <span>⚠</span> Generation appears stalled ({fmt(elapsed)})
+        </p>
+        <p className="text-xs text-slate-400">The worker may have timed out. Click Retry to queue a new attempt.</p>
+        <div className="h-1 bg-slate-100 rounded-full overflow-hidden">
+          <div className="h-full bg-amber-400 rounded-full w-full" />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-slate-500 flex items-center gap-1">
+          <Spinner />
+          {isSlow ? 'Still generating — taking a bit longer than usual…' : 'Generating image…'}
+        </p>
+        <span className="text-xs text-slate-400 tabular-nums">{fmt(elapsed)}</span>
+      </div>
+      <div className="h-1 bg-slate-100 rounded-full overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all duration-1000 ease-linear ${isSlow ? 'bg-amber-400' : 'bg-indigo-400'}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      {!isSlow && <p className="text-xs text-slate-400">Typical: 20–60 seconds</p>}
+    </div>
   );
 }
 
@@ -300,7 +352,7 @@ function ScheduledTab() {
                             </p>
                             <button
                               onClick={(e) => { e.stopPropagation(); regenerateImage(p.id); }}
-                              disabled={regenerating[p.id] || p.imageStatus === 'generating'}
+                              disabled={regenerating[p.id] || (p.imageStatus === 'generating' && !!p.imageGeneratingAt && (Date.now() - new Date(p.imageGeneratingAt).getTime()) < 180000)}
                               className="text-xs text-indigo-600 hover:text-indigo-800 font-medium disabled:opacity-40"
                             >
                               {regenerating[p.id]
@@ -309,13 +361,13 @@ function ScheduledTab() {
                                   ? 'Regenerate'
                                   : p.imageStatus === 'failed'
                                     ? 'Retry'
-                                    : 'Generate'}
+                                    : p.imageStatus === 'generating' && p.imageGeneratingAt && (Date.now() - new Date(p.imageGeneratingAt).getTime()) >= 180000
+                                      ? 'Retry'
+                                      : 'Generate'}
                             </button>
                           </div>
                           {(regenerating[p.id] || p.imageStatus === 'generating') ? (
-                            <p className="text-xs text-slate-400 italic flex items-center gap-1">
-                              <Spinner />Generating image automatically…
-                            </p>
+                            <ImageGenerationProgress since={regenerating[p.id] ? undefined : p.imageGeneratingAt} />
                           ) : p.imageStatus === 'failed' ? (
                             <p className="text-xs text-red-400 flex items-center gap-1">
                               ⚠ Image generation failed — click Retry to try again.
@@ -327,9 +379,7 @@ function ScheduledTab() {
                               className="rounded-lg max-h-64 object-cover border border-slate-200"
                             />
                           ) : (
-                            <p className="text-xs text-slate-400 italic flex items-center gap-1">
-                              <Spinner />Generating image automatically…
-                            </p>
+                            <ImageGenerationProgress since={undefined} />
                           )}
                         </div>
                       )}

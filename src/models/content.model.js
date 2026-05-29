@@ -60,6 +60,7 @@ const contentSchema = new mongoose.Schema(
     imageModel: { type: String },
     imageAspectRatio: { type: String },
     imageStatus: { type: String, enum: ['pending', 'generating', 'generated', 'failed'] },
+    imageGeneratingAt: { type: Date },
   },
   { timestamps: true }
 );

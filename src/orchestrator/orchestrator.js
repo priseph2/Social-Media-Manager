@@ -4,6 +4,7 @@ const logger = require('../utils/logger');
 const { enqueue, registerWorker } = require('./message-queue');
 const { eventBus, EVENTS } = require('../services/messaging/event-emitter');
 const { QUEUES, SKILLS, PRIORITY } = require('../config/constants');
+const Content = require('../models/content.model');
 
 const { notify } = require('../services/notifications');
 
@@ -139,6 +140,11 @@ class Orchestrator {
       this.log.info('Content approved — routing to Social Media Manager + Visual Designer', data);
       const jobs = [enqueue(QUEUES.SOCIAL, 'schedule-post', data, { priority: PRIORITY.NORMAL })];
       if (data.contentId && data.type === 'social_caption') {
+        // Mark as generating immediately so the UI shows a live progress indicator
+        await Content.findByIdAndUpdate(data.contentId, {
+          imageStatus: 'generating',
+          imageGeneratingAt: new Date(),
+        }).catch(() => {});
         jobs.push(enqueue(QUEUES.IMAGE_GENERATION, 'generate-image', data, { priority: PRIORITY.LOW }));
       }
       await Promise.all(jobs);
