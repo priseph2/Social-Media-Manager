@@ -13,6 +13,7 @@ const { invalidateBlocklistCache } = require('../middleware/blocklist-check');
 const { invalidateCache: invalidateSubscriptionCache } = require('../../services/billing/subscription');
 const logger = require('../../utils/logger');
 const { eventBus } = require('../../services/messaging/event-emitter');
+const { getBufferClient } = require('../../services/api-clients/buffer-api');
 
 const router = Router();
 router.use(requireSuperAdmin);
@@ -897,6 +898,105 @@ router.delete('/security/blocklist/:id', async (req, res, next) => {
     invalidateBlocklistCache();
     res.json({ success: true });
   } catch (err) { next(err); }
+});
+
+/**
+ * POST /api/admin/buffer/sync-scheduled
+ * Push all future scheduled posts to Buffer for every tenant that has a Buffer API key.
+ * Safe to run multiple times — skips rows that already have a buffer_post_id.
+ *
+ * Query params:
+ *   ?dryRun=true   — resolve channels and report what would be sent, without actually posting
+ */
+router.post('/buffer/sync-scheduled', async (req, res, next) => {
+  try {
+    const dryRun = req.query.dryRun === 'true';
+    const db = getSupabaseClient();
+    if (!db) return res.status(503).json({ error: 'Database unavailable' });
+
+    // Fetch all future scheduled posts that haven't been pushed to Buffer yet
+    const { data: posts, error } = await db
+      .from('content_schedule')
+      .select('id, tenant_id, platform, content, scheduled_at, status, buffer_post_id')
+      .eq('status', 'scheduled')
+      .is('buffer_post_id', null)
+      .gt('scheduled_at', new Date().toISOString())
+      .order('scheduled_at', { ascending: true });
+
+    if (error) throw error;
+    if (!posts?.length) return res.json({ synced: 0, skipped: 0, failed: 0, message: 'No un-synced future posts found.' });
+
+    logger.info(`[BufferSync] Found ${posts.length} post(s) to sync`, { dryRun });
+
+    // Group by tenant to minimise credential lookups
+    const byTenant = {};
+    for (const post of posts) {
+      const tid = post.tenant_id;
+      if (!tid) continue;
+      if (!byTenant[tid]) byTenant[tid] = [];
+      byTenant[tid].push(post);
+    }
+
+    const results = { synced: 0, skipped: 0, failed: 0, details: [] };
+
+    for (const [tenantId, tenantPosts] of Object.entries(byTenant)) {
+      let client;
+      try {
+        client = await getBufferClient(tenantId);
+      } catch (err) {
+        logger.warn(`[BufferSync] Could not get Buffer client for tenant ${tenantId}`, { error: err.message });
+        client = null;
+      }
+
+      if (!client) {
+        logger.info(`[BufferSync] No Buffer key for tenant ${tenantId} — skipping ${tenantPosts.length} post(s)`);
+        results.skipped += tenantPosts.length;
+        results.details.push({ tenantId, skipped: tenantPosts.length, reason: 'no_buffer_key' });
+        continue;
+      }
+
+      for (const post of tenantPosts) {
+        if (dryRun) {
+          results.synced += 1;
+          results.details.push({ id: post.id, tenantId, platform: post.platform, scheduledAt: post.scheduled_at, dryRun: true });
+          continue;
+        }
+
+        try {
+          const bufferResult = await client.schedulePost({
+            platform: post.platform,
+            text: post.content || '',
+            scheduledAt: post.scheduled_at,
+          });
+
+          if (bufferResult.success) {
+            // Mark the row as synced with the Buffer post ID
+            await db
+              .from('content_schedule')
+              .update({ buffer_post_id: bufferResult.id })
+              .eq('id', post.id);
+
+            results.synced += 1;
+            results.details.push({ id: post.id, tenantId, platform: post.platform, bufferId: bufferResult.id, status: bufferResult.status });
+            logger.info(`[BufferSync] Synced post ${post.id} → Buffer ${bufferResult.id}`);
+          } else {
+            results.failed += 1;
+            results.details.push({ id: post.id, tenantId, platform: post.platform, error: bufferResult.reason || bufferResult.error });
+            logger.warn(`[BufferSync] Failed to sync post ${post.id}`, { reason: bufferResult.reason || bufferResult.error });
+          }
+        } catch (err) {
+          results.failed += 1;
+          results.details.push({ id: post.id, tenantId, platform: post.platform, error: err.message });
+          logger.error(`[BufferSync] Error syncing post ${post.id}`, { error: err.message });
+        }
+      }
+    }
+
+    logger.info('[BufferSync] Complete', { synced: results.synced, skipped: results.skipped, failed: results.failed, dryRun });
+    res.json({ ...results, dryRun, totalFound: posts.length });
+  } catch (err) {
+    next(err);
+  }
 });
 
 module.exports = router;
