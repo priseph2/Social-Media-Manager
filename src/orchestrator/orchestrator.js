@@ -7,6 +7,7 @@ const { QUEUES, SKILLS, PRIORITY } = require('../config/constants');
 const Content = require('../models/content.model');
 
 const { notify } = require('../services/notifications');
+const { supabaseQuery } = require('../services/database/supabase-client');
 
 // Skill imports — each skill registers itself as a BullMQ worker
 const BrandGuardian = require('../skills/brand-guardian/brand-guardian');
@@ -161,8 +162,21 @@ class Orchestrator {
       }
     });
 
-    // Any escalation → notify human manager
+    // Any escalation → persist to DB + notify human manager
     eventBus.subscribe(EVENTS.ESCALATION_REQUIRED, SKILLS.ORCHESTRATOR, async (data) => {
+      // Write to escalations table so the dashboard shows it
+      await supabaseQuery((db) =>
+        db.from('escalations').insert({
+          tenant_id: data.tenantId || null,
+          type: data.type || 'escalation',
+          skill: data.skill || null,
+          job_id: data.jobId ? String(data.jobId) : null,
+          reason: data.reason || null,
+          payload: data,
+          resolved: false,
+        })
+      ).catch((err) => this.log.error('Failed to persist escalation', { error: err?.message }));
+
       await notify(data.tenantId, {
         type: 'escalation',
         title: 'Action required: escalation',
