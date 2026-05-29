@@ -9,6 +9,28 @@ interface ServicesData {
   services: Record<string, { status: string }>;
 }
 
+interface SyncDetail {
+  id: string;
+  tenantId: string;
+  platform: string;
+  bufferId?: string;
+  status?: string;
+  error?: string;
+  reason?: string;
+  skipped?: number;
+  dryRun?: boolean;
+}
+
+interface SyncResult {
+  synced: number;
+  skipped: number;
+  failed: number;
+  totalFound: number;
+  dryRun: boolean;
+  details: SyncDetail[];
+  message?: string;
+}
+
 const ENV_GROUPS: Array<{
   group: string;
   description: string;
@@ -85,6 +107,9 @@ const ENV_GROUPS: Array<{
 export default function IntegrationsPage() {
   const [services, setServices] = useState<Record<string, { status: string }>>({});
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
+  const [syncError, setSyncError] = useState('');
 
   useEffect(() => {
     async function load() {
@@ -106,6 +131,28 @@ export default function IntegrationsPage() {
     load();
   }, []);
 
+  async function runBufferSync(dryRun: boolean) {
+    setSyncing(true);
+    setSyncResult(null);
+    setSyncError('');
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { setSyncError('Not authenticated'); return; }
+      const res = await timedFetch(`${API}/api/admin/buffer/sync-scheduled${dryRun ? '?dryRun=true' : ''}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const json: SyncResult = await res.json();
+      if (!res.ok) { setSyncError((json as unknown as { error: string }).error || 'Sync failed'); return; }
+      setSyncResult(json);
+    } catch (e) {
+      setSyncError(e instanceof Error ? e.message : 'Sync failed');
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   return (
     <div className="p-4 sm:p-8 max-w-4xl">
       <div className="mb-6">
@@ -118,6 +165,72 @@ export default function IntegrationsPage() {
 
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 text-xs text-amber-800">
         <strong>Security note:</strong> Environment variables cannot be set through this UI — they require server access. This page shows current configuration status to help diagnose missing integrations.
+      </div>
+
+      {/* ── Buffer Sync Tool ── */}
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden mb-6">
+        <div className="px-5 py-4 border-b border-slate-100">
+          <h2 className="text-sm font-semibold text-slate-800">Buffer — Sync Scheduled Posts</h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Push all future scheduled posts from the calendar to Buffer for every tenant that has a Buffer API key configured.
+            Safe to run multiple times — posts already in Buffer are skipped.
+          </p>
+        </div>
+        <div className="px-5 py-4 space-y-4">
+          <div className="flex gap-3">
+            <button
+              onClick={() => runBufferSync(true)}
+              disabled={syncing}
+              className="text-sm px-4 py-2 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition-colors"
+            >
+              {syncing ? 'Running…' : 'Dry run (preview only)'}
+            </button>
+            <button
+              onClick={() => runBufferSync(false)}
+              disabled={syncing}
+              className="text-sm px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+            >
+              {syncing ? 'Syncing…' : 'Push to Buffer'}
+            </button>
+          </div>
+
+          {syncError && (
+            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-2">{syncError}</p>
+          )}
+
+          {syncResult && (
+            <div className="space-y-3">
+              <div className="flex gap-4 text-sm">
+                {syncResult.message ? (
+                  <p className="text-slate-500 italic">{syncResult.message}</p>
+                ) : (
+                  <>
+                    <span className="text-emerald-600 font-medium">{syncResult.synced} synced{syncResult.dryRun ? ' (dry run)' : ''}</span>
+                    {syncResult.skipped > 0 && <span className="text-slate-400">{syncResult.skipped} skipped (no key)</span>}
+                    {syncResult.failed > 0 && <span className="text-red-500 font-medium">{syncResult.failed} failed</span>}
+                    <span className="text-slate-400 ml-auto">{syncResult.totalFound} total found</span>
+                  </>
+                )}
+              </div>
+              {syncResult.details.length > 0 && (
+                <div className="bg-slate-50 rounded-lg border border-slate-100 divide-y divide-slate-100 max-h-64 overflow-y-auto text-xs font-mono">
+                  {syncResult.details.map((d, i) => (
+                    <div key={i} className="px-3 py-2 flex items-center justify-between gap-4">
+                      <span className="text-slate-600 truncate">{d.platform} — tenant {String(d.tenantId).slice(0, 8)}…</span>
+                      {d.error || d.reason ? (
+                        <span className="text-red-500 shrink-0">{d.reason || d.error}</span>
+                      ) : d.dryRun ? (
+                        <span className="text-slate-400 shrink-0">would sync</span>
+                      ) : (
+                        <span className="text-emerald-600 shrink-0">{d.bufferId}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="space-y-6">
