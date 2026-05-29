@@ -100,8 +100,8 @@ class BufferClient {
       const input = {
         channelId,
         text,
-        schedulingType: scheduledAt ? 'scheduled' : 'queue',
-        mode: 'BUFFER',
+        schedulingType: scheduledAt ? 'SCHEDULED' : 'QUEUE',
+        mode: 'post',
       };
       if (scheduledAt) input.dueAt = new Date(scheduledAt).toISOString();
       if (mediaUrls.length) input.media = mediaUrls.slice(0, 4).map((url) => ({ url }));
