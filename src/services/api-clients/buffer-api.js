@@ -100,8 +100,8 @@ class BufferClient {
       const input = {
         channelId,
         text,
-        schedulingType: scheduledAt ? 'SCHEDULED' : 'QUEUE',
-        mode: 'post',
+        schedulingType: 'automatic',
+        mode: scheduledAt ? 'customScheduled' : 'addToQueue',
       };
       if (scheduledAt) input.dueAt = new Date(scheduledAt).toISOString();
       if (mediaUrls.length) input.media = mediaUrls.slice(0, 4).map((url) => ({ url }));
@@ -120,6 +120,7 @@ class BufferClient {
             query: `mutation CreatePost($input: CreatePostInput!) {
               createPost(input: $input) {
                 ... on PostActionSuccess { post { id status } }
+                ... on MutationError { message }
               }
             }`,
             variables: { input },
@@ -142,7 +143,12 @@ class BufferClient {
         return { success: false, error: errMsg };
       }
 
-      const post = json.data?.createPost?.post;
+      const payload = json.data?.createPost;
+      if (payload?.message) {
+        logger.error('[Buffer] CreatePost MutationError', { platform, channelId, error: payload.message });
+        return { success: false, error: payload.message };
+      }
+      const post = payload?.post;
       if (!post?.id) {
         logger.warn('[Buffer] CreatePost returned no post ID', { platform, payload: JSON.stringify(payload) });
         return { success: false, error: 'Buffer returned no post ID' };
