@@ -104,7 +104,7 @@ class BufferClient {
         mode: scheduledAt ? 'customScheduled' : 'addToQueue',
       };
       if (scheduledAt) input.dueAt = new Date(scheduledAt).toISOString();
-      if (mediaUrls.length) input.assets = mediaUrls.slice(0, 4).map((url) => ({ url }));
+      if (mediaUrls.length) input.assets = mediaUrls.slice(0, 4).map((url) => ({ image: { url } }));
 
       // Instagram requires a post type and shouldShareToFeed
       if (platform === 'instagram') {

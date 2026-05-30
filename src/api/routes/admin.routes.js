@@ -914,7 +914,10 @@ router.get('/buffer/schema', async (req, res, next) => {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
         query: `{
-          __type(name: "CreatePostInput") { inputFields { name type { name kind ofType { name kind } } } }
+          createPostInput: __type(name: "CreatePostInput") { inputFields { name type { name kind ofType { name kind } } } }
+          assetInput: __type(name: "AssetInput") { inputFields { name type { name kind ofType { name kind } } } }
+          imageAssetInput: __type(name: "ImageAssetInput") { inputFields { name type { name kind ofType { name kind } } } }
+          instagramMetadata: __type(name: "InstagramPostMetadataInput") { inputFields { name type { name kind ofType { name kind } } } }
           schedulingType: __type(name: "SchedulingType") { enumValues { name } }
           shareMode: __type(name: "ShareMode") { enumValues { name } }
         }`,
@@ -924,13 +927,18 @@ router.get('/buffer/schema', async (req, res, next) => {
     const json = await r.json();
     if (json.errors?.length) return res.json({ ok: false, errors: json.errors });
 
+    const fields = (key) => json.data?.[key]?.inputFields?.map((f) => ({
+      name: f.name,
+      type: f.type?.name || f.type?.ofType?.name,
+      required: f.type?.kind === 'NON_NULL',
+    }));
+
     res.json({
       ok: true,
-      createPostInputFields: json.data?.__type?.inputFields?.map((f) => ({
-        name: f.name,
-        type: f.type?.name || f.type?.ofType?.name,
-        required: f.type?.kind === 'NON_NULL',
-      })),
+      createPostInputFields: fields('createPostInput'),
+      assetInputFields: fields('assetInput'),
+      imageAssetInputFields: fields('imageAssetInput'),
+      instagramMetadataFields: fields('instagramMetadata'),
       schedulingTypeValues: json.data?.schedulingType?.enumValues?.map((e) => e.name),
       shareModeValues: json.data?.shareMode?.enumValues?.map((e) => e.name),
     });
