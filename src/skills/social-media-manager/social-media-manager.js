@@ -141,8 +141,8 @@ class SocialMediaManager extends BaseSkill {
     this.log.info(`Scheduling post on ${platform}`, { jobId: job.id });
 
     // Generate optimised hashtags, rotating away from recently used ones
-    const recentHashtags = await getRecentHashtags(platform, 14);
-    const hashtags = await generateHashtags(text, platform, contentType, recentHashtags);
+    const recentHashtags = await getRecentHashtags(platform, 14, tenantId);
+    const hashtags = await generateHashtags(text, platform, contentType, recentHashtags, tenantId);
 
     // Format content for the platform
     const adapted = adaptForPlatform(text, hashtags, platform);
@@ -301,7 +301,7 @@ class SocialMediaManager extends BaseSkill {
   // ── Cross-Platform Adaptation ──────────────────────────────────────────────
 
   async adaptCrossPlatform(job) {
-    const { originalContent, originalPlatform, targetPlatforms = ['instagram', 'facebook', 'twitter', 'tiktok'] } = job.data;
+    const { originalContent, originalPlatform, targetPlatforms = ['instagram', 'facebook', 'twitter', 'tiktok'], tenantId } = job.data;
 
     this.log.info('Adapting content cross-platform', { from: originalPlatform, to: targetPlatforms, jobId: job.id });
 
@@ -335,8 +335,8 @@ class SocialMediaManager extends BaseSkill {
     // Add hashtags to each adaptation and format for platform
     const enriched = await Promise.all(
       output.adaptations.map(async (a) => {
-        const recentHashtags = await getRecentHashtags(a.platform, 14);
-        const hashtags = await generateHashtags(a.text, a.platform, 'lifestyle', recentHashtags);
+        const recentHashtags = await getRecentHashtags(a.platform, 14, tenantId);
+        const hashtags = await generateHashtags(a.text, a.platform, 'lifestyle', recentHashtags, tenantId);
         const formatted = adaptForPlatform(a.text, hashtags, a.platform);
         return { ...a, finalText: formatted.text, hashtags, truncated: formatted.truncated };
       })
@@ -398,11 +398,11 @@ Focus on what matters for luxury brand positioning and West African audience beh
   // ── Manage Hashtags ─────────────────────────────────────────────────────────
 
   async manageHashtags(job) {
-    const { platform, postContent, contentType = 'lifestyle' } = job.data;
+    const { platform, postContent, contentType = 'lifestyle', tenantId } = job.data;
     this.log.info('Refreshing hashtag strategy', { platform, jobId: job.id });
 
-    const recentHashtags = await getRecentHashtags(platform, 21);
-    const hashtags = await generateHashtags(postContent || 'General luxury fragrance content', platform, contentType, recentHashtags);
+    const recentHashtags = await getRecentHashtags(platform, 21, tenantId);
+    const hashtags = await generateHashtags(postContent || 'general brand content', platform, contentType, recentHashtags, tenantId);
 
     return { platform, hashtags, count: hashtags.length, jobId: job.id };
   }

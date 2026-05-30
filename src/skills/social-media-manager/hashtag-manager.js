@@ -2,25 +2,17 @@
 
 const { createMessage, cachedSystemBlock, extractToolInput } = require('../../services/anthropic-client');
 const { supabaseQuery } = require('../../services/database/supabase-client');
+const { getBrandConfig } = require('../../services/brand-config');
 const { MODELS } = require('../../config/constants');
 
-// Cascades Luxury brand hashtags — always included (subset)
-const BRAND_HASHTAGS = [
-  '#CascadesLuxury',
-  '#LuxuryFragrance',
-  '#LuxuryInAfrica',
-  '#NigeriaLuxury',
-  '#AccraLuxury',
-  '#AfricanLuxury',
-  '#FragranceCommunity',
-];
-
-// Evergreen niche hashtags by category
+// Generic niche hashtags by content type — used as a pool to draw from
+// (no brand-specific tags here; those come from the tenant's brand config)
 const NICHE_HASHTAGS = {
-  product: ['#PerfumeCollection', '#ScentOfTheDay', '#FragranceNotes', '#EauDeParfum', '#NicheFragrance', '#LuxuryPerfume'],
-  lifestyle: ['#LuxuryLifestyle', '#LuxuryBeauty', '#AfricanStyle', '#ModernAfrican', '#WestAfricanFashion'],
-  educational: ['#FragranceEducation', '#PerfumeTips', '#ScentGuide', '#FragranceFamily', '#PerfumeNerd'],
-  seasonal: ['#SummerScents', '#WinterFragrance', '#SeasonalPerfume', '#HolidayGifts'],
+  product:     ['#ProductLaunch', '#NewArrival', '#ShopNow', '#MustHave'],
+  lifestyle:   ['#LifestyleBrand', '#AfricanStyle', '#ModernAfrican', '#WestAfricanFashion'],
+  educational: ['#TipsAndTricks', '#HowTo', '#DidYouKnow', '#LearnSomethingNew'],
+  promotional: ['#SpecialOffer', '#LimitedTime', '#ExclusiveDeal', '#MembersOnly'],
+  seasonal:    ['#HolidaySeason', '#SeasonalStyle', '#TrendingNow'],
 };
 
 const HASHTAG_TOOL = {
@@ -42,7 +34,7 @@ const HASHTAG_TOOL = {
       trending: {
         type: 'array',
         items: { type: 'string' },
-        description: '2-3 trending or timely hashtags relevant to the post',
+        description: `2-3 timely hashtags relevant to the post. Use the current year (${new Date().getFullYear()}) for any year-specific tags.`,
       },
       avoidList: {
         type: 'array',
@@ -55,50 +47,75 @@ const HASHTAG_TOOL = {
   },
 };
 
-const SYSTEM_PROMPT = `You are the hashtag strategist for Cascades Luxury — a premium fragrance retailer in West Africa.
+function buildSystemPrompt(brandConfig) {
+  const name = brandConfig?.identity?.name || 'this brand';
+  const industry = brandConfig?.identity?.industry || 'their industry';
+  const market = brandConfig?.identity?.market || 'their target market';
+  const audience = brandConfig?.audience?.primary || '';
+  const tone = brandConfig?.voice?.tone || '';
 
-Your goal: maximise reach and engagement while maintaining luxury positioning.
+  return `You are the hashtag strategist for ${name} — a ${industry} brand serving ${market}.
+${audience ? `Target audience: ${audience}` : ''}
+${tone ? `Brand tone: ${tone}` : ''}
+
+Current year: ${new Date().getFullYear()}
+
+Your goal: maximise reach and engagement that is relevant to THIS brand specifically.
 
 Rules:
+- Only suggest hashtags that are relevant to ${name}'s industry and audience
 - Never use generic mass-market tags (#sale, #cheap, #deal)
-- Prioritise niche fragrance + African luxury communities
-- Mix: 3-5 high-impact + 5-8 niche community + 2-3 trending
+- Mix: 3-5 high-impact + 5-8 niche community + 2-3 timely/trending
 - Avoid overused tags with >50M posts (they offer no visibility)
 - For Instagram, aim for 10-15 total hashtags
-- Always include at least 2 African luxury or Nigeria/Ghana tags`;
+- Any year-specific trending tags must use ${new Date().getFullYear()}, not prior years
+- Do NOT include hashtags from unrelated industries or brands`;
+}
 
 /**
- * Generates an optimal hashtag set for a given piece of content using Claude.
- * @param {string} postContent - the caption text
+ * Generates an optimal hashtag set for a given piece of content.
+ * @param {string} postContent
  * @param {string} platform
- * @param {string} contentType - product, lifestyle, educational, promotional
- * @param {string[]} [previouslyUsed] - hashtags used in recent posts (to rotate)
+ * @param {string} contentType
+ * @param {string[]} previouslyUsed
+ * @param {string} [tenantId] - used to load brand config for tenant-specific hashtags
  */
-async function generateHashtags(postContent, platform, contentType, previouslyUsed = []) {
+async function generateHashtags(postContent, platform, contentType, previouslyUsed = [], tenantId = null) {
+  const brandConfig = tenantId ? await getBrandConfig(tenantId).catch(() => null) : null;
+  const systemPrompt = buildSystemPrompt(brandConfig);
+
+  const brandName = brandConfig?.identity?.name;
+  const brandHashtag = brandName
+    ? `#${brandName.replace(/\s+/g, '')}`
+    : null;
+
+  const nichePool = NICHE_HASHTAGS[contentType] || NICHE_HASHTAGS.lifestyle;
   const rotationNote = previouslyUsed.length
-    ? `\nAvoid reusing these recently used hashtags (rotation strategy): ${previouslyUsed.slice(0, 20).join(', ')}`
+    ? `\nAvoid reusing these recently used hashtags (rotation): ${previouslyUsed.slice(0, 20).join(', ')}`
     : '';
 
   const prompt = [
     `POST CONTENT:\n"${postContent.substring(0, 500)}"`,
     `Platform: ${platform}`,
     `Content type: ${contentType}`,
+    brandHashtag ? `Always include the brand hashtag: ${brandHashtag}` : '',
+    `Niche hashtag pool to draw from: ${nichePool.join(', ')}`,
     rotationNote,
-    `\nAlways include 1-2 of these brand hashtags: ${BRAND_HASHTAGS.slice(0, 4).join(', ')}`,
-    `Niche hashtag pool to draw from: ${Object.values(NICHE_HASHTAGS).flat().join(', ')}`,
   ].filter(Boolean).join('\n');
 
   const response = await createMessage({
     model: MODELS.FAST,
     maxTokens: 600,
-    system: [cachedSystemBlock(SYSTEM_PROMPT)],
+    system: [cachedSystemBlock(systemPrompt)],
     messages: [{ role: 'user', content: prompt }],
     tools: [HASHTAG_TOOL],
     label: `Hashtag Manager (${platform})`,
   });
 
   const output = extractToolInput(response);
-  if (!output) return [...BRAND_HASHTAGS.slice(0, 3), ...NICHE_HASHTAGS[contentType] || []];
+  if (!output) {
+    return [brandHashtag, ...nichePool.slice(0, 4)].filter(Boolean);
+  }
 
   return [
     ...output.primary,
@@ -108,20 +125,23 @@ async function generateHashtags(postContent, platform, contentType, previouslyUs
 }
 
 /**
- * Retrieves recently used hashtags from Supabase to inform rotation.
+ * Retrieves recently used hashtags for a specific tenant + platform.
  */
-async function getRecentHashtags(platform, days = 14) {
+async function getRecentHashtags(platform, days = 14, tenantId = null) {
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-  const result = await supabaseQuery((db) =>
-    db
+  let q = (db) => {
+    let query = db
       .from('content_schedule')
       .select('hashtags')
       .eq('platform', platform)
       .gte('scheduled_at', since)
-      .limit(30)
-  );
+      .limit(30);
+    if (tenantId) query = query.eq('tenant_id', tenantId);
+    return query;
+  };
+  const result = await supabaseQuery(q);
   if (!result) return [];
   return result.flatMap((r) => r.hashtags || []);
 }
 
-module.exports = { generateHashtags, getRecentHashtags, BRAND_HASHTAGS };
+module.exports = { generateHashtags, getRecentHashtags };
