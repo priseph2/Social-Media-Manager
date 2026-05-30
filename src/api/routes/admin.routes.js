@@ -1004,19 +1004,27 @@ router.post('/buffer/sync-scheduled', async (req, res, next) => {
     if (!db) return res.status(503).json({ error: 'Database unavailable' });
 
     // Fetch future scheduled posts that haven't been pushed to Buffer yet
-    let query = db
-      .from('content_schedule')
-      .select('id, tenant_id, platform, content, scheduled_at, status, buffer_post_id, image_url')
+    // Try with image_url first; fall back without it if column doesn't exist yet
+    let posts, queryError;
+    const baseFilter = (q) => q
       .eq('status', 'scheduled')
       .is('buffer_post_id', null)
       .gt('scheduled_at', new Date().toISOString())
       .order('scheduled_at', { ascending: true });
 
-    if (filterTenantId) query = query.eq('tenant_id', filterTenantId);
+    let q = baseFilter(db.from('content_schedule').select('id, tenant_id, platform, content, scheduled_at, status, buffer_post_id, image_url'));
+    if (filterTenantId) q = q.eq('tenant_id', filterTenantId);
+    ({ data: posts, error: queryError } = await q);
 
-    const { data: posts, error } = await query;
-
-    if (error) throw error;
+    if (queryError) {
+      // Retry without image_url if column doesn't exist yet
+      let q2 = baseFilter(db.from('content_schedule').select('id, tenant_id, platform, content, scheduled_at, status, buffer_post_id'));
+      if (filterTenantId) q2 = q2.eq('tenant_id', filterTenantId);
+      const fallback = await q2;
+      if (fallback.error) throw fallback.error;
+      posts = fallback.data;
+      logger.warn('[BufferSync] image_url column missing — run migration 014. Media will not be sent to Buffer.');
+    }
     if (!posts?.length) return res.json({ synced: 0, skipped: 0, failed: 0, message: 'No un-synced future posts found.' });
 
     logger.info(`[BufferSync] Found ${posts.length} post(s) to sync`, { dryRun });

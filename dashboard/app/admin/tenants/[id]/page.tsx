@@ -453,13 +453,16 @@ export default function TenantDetailPage() {
                 <div className="rounded-lg px-3 py-2 text-xs bg-slate-50 border border-slate-100 text-slate-700 space-y-1">
                   {bufferSyncResult.message
                     ? <p>{bufferSyncResult.message}</p>
-                    : <p className="font-medium">{bufferSyncResult.dryRun ? 'Dry run — ' : ''}{bufferSyncResult.synced} synced · {bufferSyncResult.failed} failed</p>
+                    : <p className="font-medium">{bufferSyncResult.dryRun ? 'Dry run — ' : ''}{bufferSyncResult.synced} synced · {(bufferSyncResult as any).skipped ?? 0} skipped · {bufferSyncResult.failed} failed</p>
                   }
                   {bufferSyncResult.details?.filter((d) => d.error || d.reason).map((d, i) => (
-                    <p key={i} className="text-red-600 font-mono break-all">✗ {d.platform}: {d.error || d.reason}</p>
+                    <p key={i} className="text-red-600 font-mono break-all">✗ {d.platform || 'tenant'}: {d.error || d.reason}</p>
                   ))}
                   {bufferSyncResult.details?.filter((d) => d.bufferId).map((d, i) => (
                     <p key={i} className="text-emerald-600 font-mono">✓ {d.platform}: {d.bufferId}</p>
+                  ))}
+                  {bufferSyncResult.details?.filter((d) => d.dryRun).map((d, i) => (
+                    <p key={i} className="text-slate-400 font-mono">~ {d.platform}: would sync</p>
                   ))}
                 </div>
               )}
