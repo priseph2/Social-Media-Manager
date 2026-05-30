@@ -131,6 +131,13 @@ class SocialMediaManager extends BaseSkill {
 
     if (!text) throw new Error('schedulePost: no content text provided');
 
+    // Instagram and TikTok require visual media — fail early before touching Buffer or the calendar
+    const MEDIA_REQUIRED_PLATFORMS = ['instagram', 'tiktok'];
+    if (MEDIA_REQUIRED_PLATFORMS.includes(platform) && !imageUrl && !videoUrl) {
+      this.log.warn(`[schedulePost] ${platform} requires media but none provided — post not scheduled`, { jobId: job.id, tenantId });
+      throw new Error(`${platform} posts require at least one image or video. Generate an image first, then re-schedule.`);
+    }
+
     this.log.info(`Scheduling post on ${platform}`, { jobId: job.id });
 
     // Generate optimised hashtags, rotating away from recently used ones
