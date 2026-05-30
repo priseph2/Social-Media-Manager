@@ -190,6 +190,7 @@ class SocialMediaManager extends BaseSkill {
       content: adapted.text,
       hashtags,
       originalJobId,
+      imageUrl: imageUrl || null,
     });
 
     this.log.info(`Post handled for ${platform} at ${postTime}`, {
@@ -419,7 +420,7 @@ Focus on what matters for luxury brand positioning and West African audience beh
     return postDate.toISOString();
   }
 
-  async _logScheduledPost({ tenantId, platform, contentType, scheduledAt, content, hashtags, originalJobId }) {
+  async _logScheduledPost({ tenantId, platform, contentType, scheduledAt, content, hashtags, originalJobId, imageUrl }) {
     const result = await supabaseQuery((db) =>
       db.from('content_schedule').insert({
         tenant_id: tenantId,
@@ -429,6 +430,7 @@ Focus on what matters for luxury brand positioning and West African audience beh
         content: content.substring(0, 2000),
         status: 'scheduled',
         mongo_ref: originalJobId,
+        image_url: imageUrl || null,
       })
     );
     if (result === null) {

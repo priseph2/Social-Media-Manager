@@ -1006,7 +1006,7 @@ router.post('/buffer/sync-scheduled', async (req, res, next) => {
     // Fetch future scheduled posts that haven't been pushed to Buffer yet
     let query = db
       .from('content_schedule')
-      .select('id, tenant_id, platform, content, scheduled_at, status, buffer_post_id')
+      .select('id, tenant_id, platform, content, scheduled_at, status, buffer_post_id, image_url')
       .eq('status', 'scheduled')
       .is('buffer_post_id', null)
       .gt('scheduled_at', new Date().toISOString())
@@ -1060,6 +1060,7 @@ router.post('/buffer/sync-scheduled', async (req, res, next) => {
             platform: post.platform,
             text: post.content || '',
             scheduledAt: post.scheduled_at,
+            mediaUrls: post.image_url ? [post.image_url] : [],
           });
 
           if (bufferResult.success) {

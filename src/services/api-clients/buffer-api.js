@@ -106,6 +106,11 @@ class BufferClient {
       if (scheduledAt) input.dueAt = new Date(scheduledAt).toISOString();
       if (mediaUrls.length) input.media = mediaUrls.slice(0, 4).map((url) => ({ url }));
 
+      // Instagram requires a post type and shouldShareToFeed
+      if (platform === 'instagram') {
+        input.metadata = { instagram: { type: 'post', shouldShareToFeed: true } };
+      }
+
       logger.info('[Buffer] Sending CreatePost mutation', { platform, channelId, dueAt: input.dueAt, hasMedia: !!input.media, inputKeys: Object.keys(input) });
 
       // Try the mutation; if it fails with a schema error, log the full raw response
