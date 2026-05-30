@@ -182,7 +182,13 @@ class SocialMediaManager extends BaseSkill {
     if (!nativeResult?.success) {
       const bufferClient = await getBufferClient(tenantId);
       if (bufferClient) {
-        bufferResult = await bufferClient.schedulePost({ platform, text: adapted.text, mediaUrls: imageUrl ? [imageUrl] : [], scheduledAt: postTime });
+        bufferResult = await bufferClient.schedulePost({
+          platform,
+          text: adapted.text,
+          mediaUrls: imageUrl ? [imageUrl] : [],
+          videoUrl: videoUrl || null,
+          scheduledAt: postTime,
+        });
       } else {
         this.log.warn(`[schedulePost] No Buffer client for tenant ${tenantId} — no API key configured`, { platform, jobId: job.id });
       }

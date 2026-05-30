@@ -14,6 +14,7 @@ const { invalidateCache: invalidateSubscriptionCache } = require('../../services
 const logger = require('../../utils/logger');
 const { eventBus } = require('../../services/messaging/event-emitter');
 const { getBufferClient } = require('../../services/api-clients/buffer-api');
+const { getHeyGenClient } = require('../../services/api-clients/heygen-api');
 
 const router = Router();
 router.use(requireSuperAdmin);
@@ -1104,6 +1105,97 @@ router.post('/buffer/sync-scheduled', async (req, res, next) => {
 
     logger.info('[BufferSync] Complete', { synced: results.synced, skipped: results.skipped, failed: results.failed, dryRun });
     res.json({ ...results, dryRun, totalFound: posts.length });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── HeyGen Endpoints ───────────────────────────────────────────────────────────
+
+/**
+ * GET /api/admin/tenants/:id/heygen/test
+ * Test HeyGen connection for a specific tenant — lists avatars and voices to confirm the key works.
+ */
+router.get('/tenants/:id/heygen/test', async (req, res) => {
+  try {
+    const tenantId = req.params.id;
+    const { getCredentials } = require('../../services/credential-store');
+
+    const creds = await getCredentials(tenantId, 'heygen').catch(() => null);
+    const apiKey = creds?.apiKey || process.env.HEYGEN_API_KEY;
+    if (!apiKey) {
+      return res.json({ ok: false, message: 'No HeyGen API key configured for this tenant and no global fallback set.' });
+    }
+
+    const keySource = creds?.apiKey ? 'tenant key' : 'global fallback key';
+    const client = await getHeyGenClient(tenantId);
+    if (!client) return res.json({ ok: false, message: 'Could not create HeyGen client.' });
+
+    const [avatars, voices] = await Promise.all([
+      client.listAvatars().catch(() => []),
+      client.listVoices().catch(() => []),
+    ]);
+
+    const defaultAvatarId = creds?.avatarId || process.env.HEYGEN_AVATAR_ID || null;
+    const defaultVoiceId  = creds?.voiceId  || process.env.HEYGEN_VOICE_ID  || null;
+
+    res.json({
+      ok: true,
+      keySource,
+      defaultAvatarId,
+      defaultVoiceId,
+      avatarCount: avatars.length,
+      voiceCount: voices.length,
+      avatars: avatars.slice(0, 10).map((a) => ({ id: a.avatar_id, name: a.avatar_name || a.id })),
+      voices: voices.slice(0, 10).map((v) => ({ id: v.voice_id, name: v.name, language: v.language })),
+      message: `Connected via ${keySource} — ${avatars.length} avatar${avatars.length !== 1 ? 's' : ''}, ${voices.length} voice${voices.length !== 1 ? 's' : ''} available`,
+    });
+  } catch (err) {
+    res.json({ ok: false, message: err.message || 'HeyGen test failed' });
+  }
+});
+
+/**
+ * GET /api/admin/heygen/avatars
+ * List all available HeyGen avatars using the global API key.
+ */
+router.get('/heygen/avatars', async (req, res, next) => {
+  try {
+    if (!process.env.HEYGEN_API_KEY) {
+      return res.json({ ok: false, message: 'HEYGEN_API_KEY not set on server.' });
+    }
+    const client = await getHeyGenClient(null);
+    if (!client) return res.json({ ok: false, message: 'No global HeyGen API key configured.' });
+
+    const avatars = await client.listAvatars();
+    res.json({
+      ok: true,
+      count: avatars.length,
+      avatars: avatars.map((a) => ({ id: a.avatar_id, name: a.avatar_name || a.id, gender: a.gender, tags: a.tags })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/admin/heygen/voices
+ * List all available HeyGen voices using the global API key.
+ */
+router.get('/heygen/voices', async (req, res, next) => {
+  try {
+    if (!process.env.HEYGEN_API_KEY) {
+      return res.json({ ok: false, message: 'HEYGEN_API_KEY not set on server.' });
+    }
+    const client = await getHeyGenClient(null);
+    if (!client) return res.json({ ok: false, message: 'No global HeyGen API key configured.' });
+
+    const voices = await client.listVoices();
+    res.json({
+      ok: true,
+      count: voices.length,
+      voices: voices.map((v) => ({ id: v.voice_id, name: v.name, language: v.language, gender: v.gender, preview_audio: v.preview_audio })),
+    });
   } catch (err) {
     next(err);
   }

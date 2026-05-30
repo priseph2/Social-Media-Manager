@@ -61,6 +61,10 @@ const contentSchema = new mongoose.Schema(
     imageAspectRatio: { type: String },
     imageStatus: { type: String, enum: ['pending', 'generating', 'generated', 'failed'] },
     imageGeneratingAt: { type: Date },
+    videoUrl: { type: String },
+    videoStatus: { type: String, enum: ['pending', 'generating', 'generated', 'failed'] },
+    videoGeneratingAt: { type: Date },
+    heygenVideoId: { type: String },
   },
   { timestamps: true }
 );

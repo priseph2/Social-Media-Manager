@@ -56,6 +56,15 @@ const ENV_GROUPS: Array<{
     ],
   },
   {
+    group: 'Video Generation',
+    description: 'AI avatar video for Instagram Reels and TikTok',
+    vars: [
+      { key: 'HEYGEN_API_KEY', label: 'HeyGen API Key', notes: 'Global fallback — per-tenant key takes priority', serviceKey: 'heygen' },
+      { key: 'HEYGEN_AVATAR_ID', label: 'HeyGen Default Avatar ID', notes: 'Default avatar used when tenant has no preference set' },
+      { key: 'HEYGEN_VOICE_ID', label: 'HeyGen Default Voice ID', notes: 'Default voice used when tenant has no preference set' },
+    ],
+  },
+  {
     group: 'Social Media',
     description: 'Social scheduling and posting',
     vars: [
@@ -333,6 +342,11 @@ ANTHROPIC_API_KEY=sk-ant-api03-...
 # AI — Image Generation
 OPENAI_API_KEY=sk-...           # DALL-E 3 provider
 GOOGLE_API_KEY=AIza...          # Imagen 4 Fast / Standard providers
+
+# AI — Video Generation (HeyGen avatar videos for Reels/TikTok)
+HEYGEN_API_KEY=...              # Global fallback; per-tenant key takes priority
+HEYGEN_AVATAR_ID=...            # Default avatar ID (from /api/admin/heygen/avatars)
+HEYGEN_VOICE_ID=...             # Default voice ID (from /api/admin/heygen/voices)
 
 # Payments
 PAYSTACK_SECRET_KEY=sk_live_...

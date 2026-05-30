@@ -14,7 +14,7 @@ router.use(authenticate);
 
 const ALLOWED_CREDENTIAL_SERVICES = new Set([
   'ecommerce', 'twitter', 'instagram', 'facebook', 'linkedin',
-  'ga4', 'mailchimp', 'whatsapp', 'tidio', 'buffer', 'shopify', 'canva',
+  'ga4', 'mailchimp', 'whatsapp', 'tidio', 'buffer', 'shopify', 'canva', 'heygen',
 ]);
 const SLUG_MAX_LENGTH = 63;
 

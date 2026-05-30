@@ -73,6 +73,10 @@ export default function TenantDetailPage() {
   const [bufferSyncing, setBufferSyncing] = useState(false);
   const [bufferSyncResult, setBufferSyncResult] = useState<{ synced: number; failed: number; dryRun?: boolean; message?: string; details?: Array<{ id?: string; platform?: string; bufferId?: string; error?: string; reason?: string; dryRun?: boolean }> } | null>(null);
 
+  // HeyGen per-tenant state
+  const [heygenTesting, setHeygenTesting] = useState(false);
+  const [heygenTestResult, setHeygenTestResult] = useState<{ ok: boolean; message: string; keySource?: string; defaultAvatarId?: string | null; defaultVoiceId?: string | null; avatarCount?: number; voiceCount?: number; avatars?: { id: string; name: string }[]; voices?: { id: string; name: string; language: string }[] } | null>(null);
+
   useEffect(() => {
     async function load() {
       try {
@@ -183,6 +187,21 @@ export default function TenantDetailPage() {
       setBufferSyncResult({ synced: 0, failed: 0, message: e instanceof Error ? e.message : 'Sync failed' });
     } finally {
       setBufferSyncing(false);
+    }
+  }
+
+  async function testHeyGenForTenant() {
+    setHeygenTesting(true);
+    setHeygenTestResult(null);
+    try {
+      const res = await timedFetch(`${API}/api/admin/tenants/${id}/heygen/test`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setHeygenTestResult(await res.json());
+    } catch (e) {
+      setHeygenTestResult({ ok: false, message: e instanceof Error ? e.message : 'Test failed' });
+    } finally {
+      setHeygenTesting(false);
     }
   }
 
@@ -400,6 +419,55 @@ export default function TenantDetailPage() {
               })}
             </div>
           )}
+
+          {/* HeyGen tools — always shown so admin can test global key or tenant-specific key */}
+          <div className="bg-white rounded-xl border border-slate-200 p-5">
+            <p className="text-sm font-semibold text-slate-800 mb-1">HeyGen — Avatar Video</p>
+            <p className="text-xs text-slate-500 mb-4">
+              Test this tenant&apos;s HeyGen connection. Per-tenant key takes priority; falls back to the global HEYGEN_API_KEY.
+            </p>
+
+            <div className="flex flex-wrap gap-2 mb-4">
+              <button
+                onClick={testHeyGenForTenant}
+                disabled={heygenTesting}
+                className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition-colors"
+              >
+                {heygenTesting ? 'Testing…' : 'Test connection'}
+              </button>
+            </div>
+
+            {heygenTestResult && (
+              <div className={`rounded-lg px-3 py-2 text-xs ${heygenTestResult.ok ? 'bg-emerald-50 border border-emerald-100 text-emerald-800' : 'bg-red-50 border border-red-100 text-red-700'}`}>
+                <p className="font-medium">{heygenTestResult.ok ? '✓' : '✗'} {heygenTestResult.message}</p>
+                {heygenTestResult.keySource && (
+                  <p className="text-slate-500 mt-0.5">Using: {heygenTestResult.keySource}</p>
+                )}
+                {heygenTestResult.defaultAvatarId && (
+                  <p className="text-slate-500 mt-0.5">Default avatar: <code className="font-mono">{heygenTestResult.defaultAvatarId}</code></p>
+                )}
+                {heygenTestResult.defaultVoiceId && (
+                  <p className="text-slate-500 mt-0.5">Default voice: <code className="font-mono">{heygenTestResult.defaultVoiceId}</code></p>
+                )}
+                {heygenTestResult.avatars && heygenTestResult.avatars.length > 0 && (
+                  <div className="mt-2 space-y-0.5">
+                    <p className="font-medium text-slate-600">Avatars ({heygenTestResult.avatarCount}):</p>
+                    {heygenTestResult.avatars.map((a) => (
+                      <p key={a.id} className="text-slate-600 font-mono">• {a.name} <span className="text-slate-400">({a.id})</span></p>
+                    ))}
+                  </div>
+                )}
+                {heygenTestResult.voices && heygenTestResult.voices.length > 0 && (
+                  <div className="mt-2 space-y-0.5">
+                    <p className="font-medium text-slate-600">Voices ({heygenTestResult.voiceCount}):</p>
+                    {heygenTestResult.voices.map((v) => (
+                      <p key={v.id} className="text-slate-600 font-mono">• {v.name} [{v.language}] <span className="text-slate-400">({v.id})</span></p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* Buffer tools — shown when tenant has Buffer connected */}
           {connections.some((c) => c.platform === 'buffer') && (

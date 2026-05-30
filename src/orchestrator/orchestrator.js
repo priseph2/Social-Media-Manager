@@ -18,6 +18,7 @@ const CustomerServiceAgent = require('../skills/customer-service-agent/customer-
 const AnalyticsMonitor = require('../skills/analytics-monitor/analytics-monitor');
 const EcommerceOptimizer = require('../skills/ecommerce-optimizer/ecommerce-optimizer');
 const VisualDesigner = require('../skills/visual-designer');
+const VideoProducer = require('../skills/video-producer');
 
 class Orchestrator {
   constructor() {
@@ -40,6 +41,7 @@ class Orchestrator {
     this.skills[SKILLS.ANALYTICS_MONITOR] = new AnalyticsMonitor();
     this.skills[SKILLS.ECOMMERCE_OPTIMIZER] = new EcommerceOptimizer();
     this.skills[SKILLS.VISUAL_DESIGNER] = new VisualDesigner();
+    this.skills[SKILLS.VIDEO_PRODUCER] = new VideoProducer();
 
     // Register each skill as a queue worker
     registerWorker(QUEUES.BRAND_REVIEW, this.skills[SKILLS.BRAND_GUARDIAN]);
@@ -50,6 +52,7 @@ class Orchestrator {
     registerWorker(QUEUES.ANALYTICS, this.skills[SKILLS.ANALYTICS_MONITOR]);
     registerWorker(QUEUES.ECOMMERCE, this.skills[SKILLS.ECOMMERCE_OPTIMIZER]);
     registerWorker(QUEUES.IMAGE_GENERATION, this.skills[SKILLS.VISUAL_DESIGNER]);
+    registerWorker(QUEUES.VIDEO_GENERATION, this.skills[SKILLS.VIDEO_PRODUCER]);
 
     this._registerEventHandlers();
     this.log.info('Orchestrator ready — all skills online');
@@ -137,26 +140,39 @@ class Orchestrator {
         return;
       }
 
-      // Social content: schedule post + optionally generate image
-      this.log.info('Content approved — routing to Social Media Manager + Visual Designer', data);
+      // Social content: route to video, image, or immediate scheduling
+      this.log.info('Content approved — routing social content', { platform: data.platform, tenantId: data.tenantId });
 
       const MEDIA_REQUIRED_PLATFORMS = ['instagram', 'tiktok'];
-      const willGenerateImage = !!(data.contentId && data.type === 'social_caption');
-      const needsImageFirst = MEDIA_REQUIRED_PLATFORMS.includes(data.platform) && willGenerateImage;
+      const needsMedia = MEDIA_REQUIRED_PLATFORMS.includes(data.platform);
+      const canGenerateMedia = !!(data.contentId && data.type === 'social_caption');
 
-      if (needsImageFirst) {
-        // For Instagram/TikTok: generate the image first at NORMAL priority.
-        // schedule-post fires from the IMAGE_GENERATED event once the image is ready.
-        this.log.info(`[Orchestrator] ${data.platform} requires image — deferring schedule-post until image is ready`, { contentId: data.contentId });
-        await Content.findByIdAndUpdate(data.contentId, {
-          imageStatus: 'generating',
-          imageGeneratingAt: new Date(),
-        }).catch(() => {});
-        await enqueue(QUEUES.IMAGE_GENERATION, 'generate-image', data, { priority: PRIORITY.NORMAL });
+      if (needsMedia && canGenerateMedia) {
+        // Check if tenant has HeyGen configured — prefer video for Reels/TikTok
+        const { getHeyGenClient } = require('../services/api-clients/heygen-api');
+        const heygenClient = await getHeyGenClient(data.tenantId).catch(() => null);
+
+        if (heygenClient) {
+          // Video-first: generate HeyGen avatar video, then schedule-post fires from VIDEO_GENERATED
+          this.log.info(`[Orchestrator] ${data.platform} — HeyGen configured, generating avatar video`, { contentId: data.contentId });
+          await Content.findByIdAndUpdate(data.contentId, {
+            videoStatus: 'generating',
+            videoGeneratingAt: new Date(),
+          }).catch(() => {});
+          await enqueue(QUEUES.VIDEO_GENERATION, 'generate-video', data, { priority: PRIORITY.NORMAL });
+        } else {
+          // Image-first: generate image, then schedule-post fires from IMAGE_GENERATED
+          this.log.info(`[Orchestrator] ${data.platform} — no HeyGen, generating image`, { contentId: data.contentId });
+          await Content.findByIdAndUpdate(data.contentId, {
+            imageStatus: 'generating',
+            imageGeneratingAt: new Date(),
+          }).catch(() => {});
+          await enqueue(QUEUES.IMAGE_GENERATION, 'generate-image', data, { priority: PRIORITY.NORMAL });
+        }
       } else {
-        // For other platforms: schedule immediately and generate image in parallel if applicable
+        // Non-media platforms: schedule immediately; generate image in background if applicable
         const jobs = [enqueue(QUEUES.SOCIAL, 'schedule-post', data, { priority: PRIORITY.NORMAL })];
-        if (willGenerateImage) {
+        if (canGenerateMedia) {
           await Content.findByIdAndUpdate(data.contentId, {
             imageStatus: 'generating',
             imageGeneratingAt: new Date(),
@@ -182,6 +198,24 @@ class Orchestrator {
     eventBus.subscribe(EVENTS.IMAGE_GENERATED, SKILLS.ORCHESTRATOR, async (data) => {
       this.log.info('[Orchestrator] Image generated — enqueuing schedule-post', { contentId: data.contentId, platform: data.platform, imageUrl: data.imageUrl });
       await enqueue(QUEUES.SOCIAL, 'schedule-post', data, { priority: PRIORITY.NORMAL });
+    });
+
+    // HeyGen video ready → schedule the post with videoUrl
+    eventBus.subscribe(EVENTS.VIDEO_GENERATED, SKILLS.ORCHESTRATOR, async (data) => {
+      this.log.info('[Orchestrator] Video generated — enqueuing schedule-post', { contentId: data.contentId, platform: data.platform });
+      await enqueue(QUEUES.SOCIAL, 'schedule-post', data, { priority: PRIORITY.NORMAL });
+    });
+
+    // HeyGen unavailable (no API key) → fall back to image generation
+    eventBus.subscribe(EVENTS.VIDEO_GENERATION_UNAVAILABLE, SKILLS.ORCHESTRATOR, async (data) => {
+      this.log.info('[Orchestrator] Video unavailable — falling back to image generation', { contentId: data.contentId, platform: data.platform });
+      if (data.contentId) {
+        await Content.findByIdAndUpdate(data.contentId, {
+          imageStatus: 'generating',
+          imageGeneratingAt: new Date(),
+        }).catch(() => {});
+      }
+      await enqueue(QUEUES.IMAGE_GENERATION, 'generate-image', data, { priority: PRIORITY.NORMAL });
     });
 
     // Any escalation → persist to DB + notify human manager

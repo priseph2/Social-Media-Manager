@@ -85,7 +85,7 @@ class BufferClient {
     return this._channelsByPlatform;
   }
 
-  async schedulePost({ platform, text, mediaUrls = [], scheduledAt }) {
+  async schedulePost({ platform, text, mediaUrls = [], videoUrl = null, scheduledAt }) {
     try {
       const channels = await this._resolveChannels();
       const channelId = channels[platform];
@@ -104,11 +104,18 @@ class BufferClient {
         mode: scheduledAt ? 'customScheduled' : 'addToQueue',
       };
       if (scheduledAt) input.dueAt = new Date(scheduledAt).toISOString();
-      if (mediaUrls.length) input.assets = mediaUrls.slice(0, 4).map((url) => ({ image: { url } }));
 
-      // Instagram requires a post type and shouldShareToFeed
+      // Assets: video takes priority over images
+      if (videoUrl) {
+        input.assets = [{ video: { url: videoUrl } }];
+      } else if (mediaUrls.length) {
+        input.assets = mediaUrls.slice(0, 4).map((url) => ({ image: { url } }));
+      }
+
+      // Instagram metadata — reel for video content, post for images
       if (platform === 'instagram') {
-        input.metadata = { instagram: { type: 'post', shouldShareToFeed: true } };
+        const instagramType = videoUrl ? 'reel' : 'post';
+        input.metadata = { instagram: { type: instagramType, shouldShareToFeed: true } };
       }
 
       logger.info('[Buffer] Sending CreatePost mutation', { platform, channelId, dueAt: input.dueAt, hasMedia: !!input.media, inputKeys: Object.keys(input) });

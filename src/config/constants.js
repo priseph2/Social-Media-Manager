@@ -20,6 +20,7 @@ module.exports = {
     BRAND_GUARDIAN: 'brand-guardian',
     ECOMMERCE_OPTIMIZER: 'ecommerce-optimizer',
     VISUAL_DESIGNER: 'visual-designer',
+    VIDEO_PRODUCER: 'video-producer',
   },
 
   // ── Queue names ────────────────────────────────────────────────────────────
@@ -33,6 +34,7 @@ module.exports = {
     ECOMMERCE: 'ecommerce',
     ORCHESTRATOR: 'orchestrator',
     IMAGE_GENERATION: 'image-generation',
+    VIDEO_GENERATION: 'video-generation',
   },
 
   // ── Event names ────────────────────────────────────────────────────────────
@@ -50,6 +52,8 @@ module.exports = {
     CONTENT_PENDING_APPROVAL: 'content_pending_approval',
     ESCALATION_REQUIRED: 'escalation_required',
     IMAGE_GENERATED: 'image_generated',
+    VIDEO_GENERATED: 'video_generated',
+    VIDEO_GENERATION_UNAVAILABLE: 'video_generation_unavailable',
   },
 
   // ── Per-tenant hourly AI ops rate limits ───────────────────────────────────
