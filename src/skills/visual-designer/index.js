@@ -9,6 +9,8 @@ const { addBrandOverlay, extractHook } = require('./brand-overlay');
 const { recordImageUsage } = require('../../services/billing/usage-meter');
 const { PLATFORM_ASPECT_RATIOS } = require('../../services/image-generation/base-adapter');
 const logger = require('../../utils/logger');
+const { eventBus } = require('../../services/messaging/event-emitter');
+const { EVENTS } = require('../../config/constants');
 
 const STORAGE_BUCKET = 'generated-images';
 
@@ -78,6 +80,10 @@ class VisualDesigner extends BaseSkill {
       recordImageUsage(tenantId, model, costUsd, 'visual-designer');
 
       this.log.info('Image generated successfully', { contentId, imageUrl, model, costUsd });
+
+      // Notify orchestrator so image-first platforms (Instagram/TikTok) can now schedule the post
+      eventBus.publish(EVENTS.IMAGE_GENERATED, { ...job.data, imageUrl });
+
       return { imageUrl, model, contentId, costUsd };
     } catch (err) {
       // Mark as failed so the UI doesn't stay stuck on 'generating'

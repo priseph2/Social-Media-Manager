@@ -49,6 +49,7 @@ module.exports = {
     CONTENT_REJECTED: 'content_rejected',
     CONTENT_PENDING_APPROVAL: 'content_pending_approval',
     ESCALATION_REQUIRED: 'escalation_required',
+    IMAGE_GENERATED: 'image_generated',
   },
 
   // ── Per-tenant hourly AI ops rate limits ───────────────────────────────────

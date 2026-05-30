@@ -137,18 +137,34 @@ class Orchestrator {
         return;
       }
 
-      // Social content: schedule post + generate image in parallel
+      // Social content: schedule post + optionally generate image
       this.log.info('Content approved — routing to Social Media Manager + Visual Designer', data);
-      const jobs = [enqueue(QUEUES.SOCIAL, 'schedule-post', data, { priority: PRIORITY.NORMAL })];
-      if (data.contentId && data.type === 'social_caption') {
-        // Mark as generating immediately so the UI shows a live progress indicator
+
+      const MEDIA_REQUIRED_PLATFORMS = ['instagram', 'tiktok'];
+      const willGenerateImage = !!(data.contentId && data.type === 'social_caption');
+      const needsImageFirst = MEDIA_REQUIRED_PLATFORMS.includes(data.platform) && willGenerateImage;
+
+      if (needsImageFirst) {
+        // For Instagram/TikTok: generate the image first at NORMAL priority.
+        // schedule-post fires from the IMAGE_GENERATED event once the image is ready.
+        this.log.info(`[Orchestrator] ${data.platform} requires image — deferring schedule-post until image is ready`, { contentId: data.contentId });
         await Content.findByIdAndUpdate(data.contentId, {
           imageStatus: 'generating',
           imageGeneratingAt: new Date(),
         }).catch(() => {});
-        jobs.push(enqueue(QUEUES.IMAGE_GENERATION, 'generate-image', data, { priority: PRIORITY.LOW }));
+        await enqueue(QUEUES.IMAGE_GENERATION, 'generate-image', data, { priority: PRIORITY.NORMAL });
+      } else {
+        // For other platforms: schedule immediately and generate image in parallel if applicable
+        const jobs = [enqueue(QUEUES.SOCIAL, 'schedule-post', data, { priority: PRIORITY.NORMAL })];
+        if (willGenerateImage) {
+          await Content.findByIdAndUpdate(data.contentId, {
+            imageStatus: 'generating',
+            imageGeneratingAt: new Date(),
+          }).catch(() => {});
+          jobs.push(enqueue(QUEUES.IMAGE_GENERATION, 'generate-image', data, { priority: PRIORITY.LOW }));
+        }
+        await Promise.all(jobs);
       }
-      await Promise.all(jobs);
       // Notify tenant: content approved and queued
       if (data.tenantId) {
         await notify(data.tenantId, {
@@ -160,6 +176,12 @@ class Orchestrator {
           link: '/dashboard/content',
         });
       }
+    });
+
+    // Image ready → schedule the post (used by Instagram/TikTok image-first flow)
+    eventBus.subscribe(EVENTS.IMAGE_GENERATED, SKILLS.ORCHESTRATOR, async (data) => {
+      this.log.info('[Orchestrator] Image generated — enqueuing schedule-post', { contentId: data.contentId, platform: data.platform, imageUrl: data.imageUrl });
+      await enqueue(QUEUES.SOCIAL, 'schedule-post', data, { priority: PRIORITY.NORMAL });
     });
 
     // Any escalation → persist to DB + notify human manager
