@@ -22,6 +22,7 @@ const billingRoutes = require('./api/routes/billing.routes');
 const adminRoutes = require('./api/routes/admin.routes');
 const notificationsRoutes = require('./api/routes/notifications.routes');
 const mediaRoutes = require('./api/routes/media.routes');
+const cronRoutes = require('./api/routes/cron.routes');
 
 const app = express();
 
@@ -62,6 +63,7 @@ app.use('/api/content', contentRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/media', mediaRoutes);
+app.use('/api/cron', cronRoutes);
 app.use('/webhooks', webhookRoutes);
 // Paystack webhook mounted under /webhooks for consistency
 app.use('/webhooks', billingRoutes);

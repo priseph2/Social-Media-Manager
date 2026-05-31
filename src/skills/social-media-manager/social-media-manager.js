@@ -161,7 +161,7 @@ class SocialMediaManager extends BaseSkill {
     if (adapted.truncated) this.log.warn(`Content truncated for ${platform} limit`, { jobId: job.id });
 
     // Determine optimal posting time
-    const postTime = scheduledAt || (await this._getOptimalPostTime(platform));
+    const postTime = scheduledAt || (await this._getOptimalPostTime(platform, tenantId));
     const scheduledTs = postTime ? Math.floor(new Date(postTime).getTime() / 1000) : null;
 
     // ── Native publishing (Meta/TikTok) with Buffer fallback ──────────────────
@@ -427,22 +427,65 @@ Focus on what matters for luxury brand positioning and West African audience beh
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
 
-  async _getOptimalPostTime(platform) {
-    // Evidence-based defaults for WAT — updated by Analytics Monitor in Phase 5
-    const schedule = {
-      instagram: { day: 2, hour: 14 },  // Tuesday 2 PM
-      facebook:  { day: 3, hour: 13 },  // Wednesday 1 PM
-      twitter:   { day: 1, hour: 9  },  // Monday 9 AM
-      tiktok:    { day: 2, hour: 18 },  // Tuesday 6 PM
-      pinterest: { day: 0, hour: 20 },  // Sunday 8 PM
+  async _getOptimalPostTime(platform, tenantId) {
+    // How many days to leave between consecutive posts per platform
+    const FREQUENCY_DAYS = {
+      instagram: 2,
+      facebook:  2,
+      twitter:   1,
+      tiktok:    2,
+      linkedin:  3,
+      pinterest: 3,
     };
-    const config = schedule[platform] || { day: 1, hour: 12 };
+    // Best hour of day to post (WAT, based on engagement data)
+    const OPTIMAL_HOURS = {
+      instagram: 14,
+      facebook:  13,
+      twitter:   9,
+      tiktok:    18,
+      linkedin:  10,
+      pinterest: 20,
+    };
+
+    const frequencyDays = FREQUENCY_DAYS[platform] || 2;
+    const optimalHour   = OPTIMAL_HOURS[platform]   || 12;
+
+    // Find the latest already-queued post for this tenant + platform so we
+    // spread new posts rather than stacking them all on the same slot.
+    let latestScheduled = null;
+    try {
+      const { getSupabaseClient } = require('../../services/database/supabase-client');
+      const db = getSupabaseClient();
+      if (db && tenantId) {
+        const { data } = await db
+          .from('content_schedule')
+          .select('scheduled_at')
+          .eq('tenant_id', tenantId)
+          .eq('platform', platform)
+          .in('status', ['scheduled', 'pending'])
+          .order('scheduled_at', { ascending: false })
+          .limit(1);
+        if (data?.[0]?.scheduled_at) {
+          latestScheduled = new Date(data[0].scheduled_at);
+        }
+      }
+    } catch { /* fall through to default */ }
+
     const now = new Date();
-    const daysUntil = (config.day + 7 - now.getDay()) % 7 || 7;
-    const postDate = new Date(now);
-    postDate.setDate(postDate.getDate() + daysUntil);
-    postDate.setHours(config.hour, 0, 0, 0);
-    return postDate.toISOString();
+    let baseDate;
+
+    if (latestScheduled && latestScheduled > now) {
+      // Append after the last scheduled post
+      baseDate = new Date(latestScheduled);
+      baseDate.setDate(baseDate.getDate() + frequencyDays);
+    } else {
+      // Nothing queued yet — start tomorrow
+      baseDate = new Date(now);
+      baseDate.setDate(baseDate.getDate() + 1);
+    }
+
+    baseDate.setHours(optimalHour, 0, 0, 0);
+    return baseDate.toISOString();
   }
 
   async _logScheduledPost({ tenantId, platform, contentType, scheduledAt, content, hashtags, originalJobId, imageUrl }) {
