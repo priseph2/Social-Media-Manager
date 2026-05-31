@@ -126,8 +126,20 @@ class SocialMediaManager extends BaseSkill {
   // ── Schedule Post ────────────────────────────────────────────────────────────
 
   async schedulePost(job) {
-    const { platform, content, scheduledAt, contentType = 'lifestyle', originalJobId, imageUrl, videoUrl, tenantId } = job.data;
-    const text = content?.selectedContent || content?.captions?.[content.recommendedIndex]?.text || content;
+    const { platform, content, scheduledAt, contentType = 'lifestyle', originalJobId, imageUrl, videoUrl, tenantId, contentId } = job.data;
+    let text = content?.selectedContent || content?.captions?.[content.recommendedIndex]?.text || content;
+
+    // When contentId is provided without inline content (e.g. repurposed-image flow),
+    // load the caption from MongoDB so scheduling still works.
+    if (!text && contentId) {
+      try {
+        const Content = require('../../models/content.model');
+        const doc = await Content.findById(contentId).select('variations selectedVariation');
+        if (doc) {
+          text = doc.variations[doc.selectedVariation ?? 0]?.text || null;
+        }
+      } catch { /* fall through to error below */ }
+    }
 
     if (!text) throw new Error('schedulePost: no content text provided');
 
