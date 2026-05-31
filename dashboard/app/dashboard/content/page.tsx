@@ -1242,12 +1242,12 @@ export default function ContentPage() {
         <p className="text-sm text-slate-500 mt-0.5">Generate, schedule, and localise your content</p>
       </div>
 
-      <div className="flex border-b border-slate-200 mb-6 gap-1">
+      <div className="flex border-b border-slate-200 mb-6 gap-1 overflow-x-auto scrollbar-none">
         {TABS.map((t) => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px whitespace-nowrap ${
               tab === t.id
                 ? 'border-slate-900 text-slate-900'
                 : 'border-transparent text-slate-500 hover:text-slate-700'
