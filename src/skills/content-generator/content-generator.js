@@ -491,14 +491,25 @@ class ContentGenerator extends BaseSkill {
   async _persist(result, jobId, tenantId) {
     if (!isMongoAvailable()) return null;
     try {
+      let variations;
+      if (result.type === 'repurposed_content' && Array.isArray(result.posts)) {
+        variations = result.posts.map((p) => ({ text: p.caption, hashtags: p.hashtags || [] }));
+      } else {
+        variations = result.captions?.map((c) => ({ text: c.text, hashtags: c.hashtags })) || [{ text: result.selectedContent }];
+      }
+
       const doc = await Content.create({
         tenantId,
         type: result.type,
         platform: result.platform,
         input: result.input,
-        variations: result.captions?.map((c) => ({ text: c.text, hashtags: c.hashtags })) || [{ text: result.selectedContent }],
+        variations,
         selectedVariation: result.recommendedIndex || 0,
         brandReview: { status: 'pending' },
+        ...(result.type === 'repurposed_content' && {
+          repurposedPosts: result.posts,
+          keyInsights: result.keyInsights || [],
+        }),
         jobId,
       });
       return String(doc._id);

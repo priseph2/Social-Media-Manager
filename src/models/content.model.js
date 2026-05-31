@@ -7,7 +7,7 @@ const contentSchema = new mongoose.Schema(
     tenantId: { type: String, index: true },
     type: {
       type: String,
-      enum: ['social_caption', 'email_campaign', 'blog_post', 'product_description', 'content_calendar', 'customer_response', 'tiktok_script', 'image_brief'],
+      enum: ['social_caption', 'email_campaign', 'blog_post', 'product_description', 'content_calendar', 'customer_response', 'tiktok_script', 'image_brief', 'repurposed_content'],
       required: true,
     },
     platform: { type: String },
@@ -55,6 +55,15 @@ const contentSchema = new mongoose.Schema(
         attributedAt: { type: Date, default: Date.now },
       },
     ],
+    repurposedPosts: [
+      {
+        platform: String,
+        caption: String,
+        hashtags: [String],
+        angle: String,
+      },
+    ],
+    keyInsights: [{ type: String }],
     jobId: { type: String },
     imageUrl: { type: String },
     imageModel: { type: String },
