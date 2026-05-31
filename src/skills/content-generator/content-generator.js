@@ -13,6 +13,7 @@ const {
   CONTENT_CALENDAR_TOOL,
   TIKTOK_SCRIPT_TOOL,
   IMAGE_BRIEF_TOOL,
+  REPURPOSE_TOOL,
 } = require('./prompts');
 const { enqueue } = require('../../orchestrator/message-queue');
 const { SKILLS, QUEUES, PRIORITY, MODELS } = require('../../config/constants');
@@ -55,6 +56,9 @@ class ContentGenerator extends BaseSkill {
         break;
       case 'image_brief':
         result = await this.generateImageBrief(validated, job.id, brandConfig);
+        break;
+      case 'repurposed_content':
+        result = await this.generateRepurposed(validated, job.id, brandConfig);
         break;
       default:
         throw new Error(`Unknown content type: ${validated.type}`);
@@ -429,6 +433,57 @@ class ContentGenerator extends BaseSkill {
       priority: output.priority,
       designerNotes: output.designerNotes,
       selectedContent: output.concept,
+      jobId,
+    };
+  }
+
+  async generateRepurposed(data, jobId, brandConfig) {
+    const brandName = brandConfig?.identity?.name || 'the brand';
+    const platforms = Array.isArray(data.platforms) && data.platforms.length
+      ? data.platforms
+      : ['instagram', 'facebook', 'twitter', 'linkedin'];
+
+    this.log.info('Generating repurposed content', { jobId, source: data.sourceUrl });
+
+    const prompt = [
+      `You are repurposing third-party content into original social media posts for ${brandName}.`,
+      '',
+      `Source title: ${data.sourceTitle || data.sourceUrl}`,
+      '',
+      '--- SOURCE CONTENT ---',
+      data.extractedText,
+      '--- END SOURCE CONTENT ---',
+      '',
+      `Create one platform-optimised post for each of these platforms: ${platforms.join(', ')}.`,
+      '',
+      'Requirements:',
+      '• Adapt the tone and format for each platform (Instagram: visual/lifestyle, LinkedIn: professional/insightful, Twitter/X: punchy/opinionated, Facebook: conversational, Pinterest: aspirational)',
+      '• Do NOT just summarise — REFRAME the ideas in a way that is genuinely useful and relevant to the brand audience',
+      '• Each post must stand on its own without needing to read the source',
+      '• Maintain brand voice throughout',
+      '• Include appropriate hashtags per platform',
+      '• Extract 3-5 genuine key insights from the source that add value',
+    ].filter(Boolean).join('\n');
+
+    const response = await createMessage({
+      model: MODELS.PRIMARY,
+      maxTokens: 3000,
+      system: [cachedSystemBlock(BASE_SYSTEM), this._guidelinesBlock(brandConfig)],
+      messages: [{ role: 'user', content: prompt }],
+      tools: [REPURPOSE_TOOL],
+      label: 'Content Generator: repurpose content',
+    });
+
+    const output = extractToolInput(response);
+    if (!output) throw new Error('Content Generator did not return repurposed content');
+
+    return {
+      type: 'repurposed_content',
+      input: data,
+      summary: output.summary,
+      posts: output.posts,
+      keyInsights: output.keyInsights,
+      selectedContent: output.posts[0]?.caption || '',
       jobId,
     };
   }

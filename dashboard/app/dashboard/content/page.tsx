@@ -1027,6 +1027,199 @@ function LocaliseTab() {
   );
 }
 
+// ── Tab: Repurpose ────────────────────────────────────────────────────────────
+
+interface RepurposePost {
+  platform: string;
+  caption: string;
+  hashtags: string[];
+  angle: string;
+}
+
+interface RepurposeResult {
+  summary: string;
+  posts: RepurposePost[];
+  keyInsights: string[];
+  source: string;
+  sourceTitle: string;
+}
+
+const REPURPOSE_PLATFORMS = [
+  { id: 'instagram', label: 'Instagram' },
+  { id: 'facebook', label: 'Facebook' },
+  { id: 'twitter', label: 'Twitter / X' },
+  { id: 'linkedin', label: 'LinkedIn' },
+  { id: 'pinterest', label: 'Pinterest' },
+];
+
+const PLATFORM_ICONS: Record<string, string> = {
+  instagram: '📸',
+  facebook: '👥',
+  twitter: '🐦',
+  linkedin: '💼',
+  pinterest: '📌',
+};
+
+function RepurposeTab() {
+  const [url, setUrl] = useState('');
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(['instagram', 'facebook', 'twitter', 'linkedin']);
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<RepurposeResult | null>(null);
+  const [error, setError] = useState('');
+  const [copiedPlatform, setCopiedPlatform] = useState<string | null>(null);
+
+  function togglePlatform(id: string) {
+    setSelectedPlatforms((prev) =>
+      prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]
+    );
+  }
+
+  async function handleRepurpose() {
+    if (!url.trim() || selectedPlatforms.length === 0) return;
+    setLoading(true);
+    setError('');
+    setResult(null);
+    try {
+      const data = await apiFetch<RepurposeResult>('/api/content/repurpose', {
+        method: 'POST',
+        body: JSON.stringify({ url: url.trim(), platforms: selectedPlatforms }),
+      });
+      setResult(data);
+    } catch (e: unknown) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function copyCaption(post: RepurposePost) {
+    const full = post.hashtags?.length
+      ? `${post.caption}\n\n${post.hashtags.map((h) => `#${h.replace(/^#/, '')}`).join(' ')}`
+      : post.caption;
+    navigator.clipboard.writeText(full);
+    setCopiedPlatform(post.platform);
+    setTimeout(() => setCopiedPlatform(null), 2000);
+  }
+
+  return (
+    <div className="space-y-5">
+      <Card>
+        <p className="text-xs text-slate-500 mb-4">
+          Paste a YouTube video URL or any article link. We&apos;ll extract the content and generate platform-optimised posts in your brand voice.
+        </p>
+        <div className="space-y-4">
+          <div>
+            <Label>URL (YouTube or article)</Label>
+            <Input
+              value={url}
+              onChange={setUrl}
+              placeholder="https://youtube.com/watch?v=… or https://example.com/article"
+            />
+          </div>
+
+          <div>
+            <Label>Generate posts for</Label>
+            <div className="flex gap-2 mt-1 flex-wrap">
+              {REPURPOSE_PLATFORMS.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => togglePlatform(p.id)}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                    selectedPlatforms.includes(p.id)
+                      ? 'bg-slate-900 text-white border-slate-900'
+                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {PLATFORM_ICONS[p.id]} {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+              <p className="text-sm text-red-600">{error}</p>
+            </div>
+          )}
+
+          <button
+            onClick={handleRepurpose}
+            disabled={loading || !url.trim() || selectedPlatforms.length === 0}
+            className="px-6 py-2 bg-slate-900 text-white text-sm rounded-lg hover:bg-slate-700 disabled:opacity-50 transition-colors"
+          >
+            {loading ? <><Spinner />Extracting &amp; generating…</> : 'Repurpose Content'}
+          </button>
+        </div>
+      </Card>
+
+      {result && (
+        <div className="space-y-4">
+          {/* Source summary */}
+          <Card className="bg-slate-50">
+            <div className="flex items-start gap-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">
+                  Source — {result.source === 'youtube_transcript' ? 'YouTube transcript' : result.source === 'youtube_title_only' ? 'YouTube (no captions found)' : 'Article'}
+                </p>
+                <p className="text-sm font-medium text-slate-800 truncate">{result.sourceTitle}</p>
+                <p className="text-sm text-slate-600 mt-2 leading-relaxed">{result.summary}</p>
+              </div>
+            </div>
+          </Card>
+
+          {/* Key insights */}
+          {result.keyInsights?.length > 0 && (
+            <Card>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Key Insights</p>
+              <ul className="space-y-2">
+                {result.keyInsights.map((insight, i) => (
+                  <li key={i} className="flex gap-2 text-sm text-slate-700">
+                    <span className="text-slate-400 font-mono shrink-0">{i + 1}.</span>
+                    <span className="leading-relaxed">{insight}</span>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+
+          {/* Per-platform posts */}
+          {result.posts.map((post) => (
+            <Card key={post.platform}>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-base">{PLATFORM_ICONS[post.platform] || '📄'}</span>
+                  <span className="font-semibold text-slate-800 capitalize">{post.platform}</span>
+                  {post.angle && (
+                    <span className="text-xs bg-indigo-50 text-indigo-600 border border-indigo-100 px-2 py-0.5 rounded-full">
+                      {post.angle}
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={() => copyCaption(post)}
+                  className="text-xs text-slate-400 hover:text-slate-700 transition-colors px-2 py-1 rounded hover:bg-slate-50"
+                >
+                  {copiedPlatform === post.platform ? '✓ Copied' : 'Copy'}
+                </button>
+              </div>
+
+              <div className="bg-slate-50 rounded-lg p-4 text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">
+                {post.caption}
+              </div>
+
+              {post.hashtags?.length > 0 && (
+                <p className="text-xs text-blue-500 mt-2">
+                  {post.hashtags.map((h) => `#${h.replace(/^#/, '')}`).join(' ')}
+                </p>
+              )}
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 const TABS = [
@@ -1034,6 +1227,7 @@ const TABS = [
   { id: 'create', label: 'Create' },
   { id: 'tiktok', label: 'TikTok / Reels' },
   { id: 'localise', label: 'Localise' },
+  { id: 'repurpose', label: 'Repurpose' },
 ] as const;
 
 type TabId = typeof TABS[number]['id'];
@@ -1068,6 +1262,7 @@ export default function ContentPage() {
       {tab === 'create' && <CreateTab />}
       {tab === 'tiktok' && <TikTokTab />}
       {tab === 'localise' && <LocaliseTab />}
+      {tab === 'repurpose' && <RepurposeTab />}
     </div>
   );
 }

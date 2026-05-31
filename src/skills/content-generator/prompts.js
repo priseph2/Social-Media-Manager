@@ -311,6 +311,44 @@ const IMAGE_BRIEF_TOOL = {
   },
 };
 
+// ── Content Repurposing tool ──────────────────────────────────────────────────
+
+const REPURPOSE_TOOL = {
+  name: 'submit_repurposed_content',
+  description: 'Submit platform-optimised posts generated from repurposed source content',
+  input_schema: {
+    type: 'object',
+    properties: {
+      summary: {
+        type: 'string',
+        description: 'Brief 2-3 sentence summary of the key message from the source content',
+      },
+      posts: {
+        type: 'array',
+        description: 'One optimised post per requested platform',
+        items: {
+          type: 'object',
+          properties: {
+            platform: { type: 'string', description: 'Social platform name (e.g. instagram, linkedin)' },
+            caption: { type: 'string', description: 'Full platform-optimised caption text' },
+            hashtags: { type: 'array', items: { type: 'string' } },
+            angle: { type: 'string', description: 'Creative angle or hook used (e.g. educational, inspirational, contrarian)' },
+          },
+          required: ['platform', 'caption', 'hashtags', 'angle'],
+        },
+      },
+      keyInsights: {
+        type: 'array',
+        description: '3-5 key takeaways extracted and reframed for the brand audience',
+        minItems: 3,
+        maxItems: 5,
+        items: { type: 'string' },
+      },
+    },
+    required: ['summary', 'posts', 'keyInsights'],
+  },
+};
+
 module.exports = {
   BASE_SYSTEM,
   guidelinesContext,
@@ -321,4 +359,5 @@ module.exports = {
   CONTENT_CALENDAR_TOOL,
   TIKTOK_SCRIPT_TOOL,
   IMAGE_BRIEF_TOOL,
+  REPURPOSE_TOOL,
 };

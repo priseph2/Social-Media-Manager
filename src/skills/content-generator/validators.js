@@ -76,6 +76,14 @@ const ImageBriefRequestSchema = z.object({
   numberOfVariants: z.number().min(1).max(4).optional().default(1),
 });
 
+const RepurposedContentRequestSchema = z.object({
+  type: z.literal('repurposed_content'),
+  sourceUrl: z.string().url(),
+  sourceTitle: z.string().max(500).optional(),
+  extractedText: z.string().min(50).max(10000),
+  platforms: z.array(z.enum(['instagram', 'facebook', 'twitter', 'linkedin', 'pinterest'])).min(1).max(5).optional(),
+});
+
 const ContentRequestSchema = z.discriminatedUnion('type', [
   SocialCaptionRequestSchema,
   EmailCampaignRequestSchema,
@@ -85,6 +93,7 @@ const ContentRequestSchema = z.discriminatedUnion('type', [
   DailyContentRequestSchema,
   TikTokScriptRequestSchema,
   ImageBriefRequestSchema,
+  RepurposedContentRequestSchema,
 ]);
 
 function validateRequest(data) {

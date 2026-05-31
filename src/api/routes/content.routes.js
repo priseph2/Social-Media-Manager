@@ -244,6 +244,57 @@ router.get('/approval-gate', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+/**
+ * POST /api/content/repurpose
+ * Extract text from a URL (YouTube or article) and generate platform-optimised posts.
+ * Body: { url, platforms?: string[] }
+ */
+router.post('/repurpose', checkOpsLimit, async (req, res, next) => {
+  try {
+    const { url, platforms } = req.body;
+    if (!url) return res.status(400).json({ error: 'url is required' });
+
+    let parsed;
+    try { parsed = new URL(url); } catch { return res.status(400).json({ error: 'Invalid URL' }); }
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return res.status(400).json({ error: 'URL must use http or https' });
+    }
+
+    const { extractFromUrl } = require('../../services/content-extractor');
+    const extracted = await extractFromUrl(url);
+
+    if (!extracted.text || extracted.text.length < 50) {
+      return res.status(422).json({ error: 'Could not extract enough content from that URL. Try a different link.' });
+    }
+
+    const brandConfig = await getBrandConfig(req.tenantId || null);
+    const jobId = `repurpose-${Date.now()}`;
+
+    const validPlatforms = ['instagram', 'facebook', 'twitter', 'linkedin', 'pinterest'];
+    const requestedPlatforms = Array.isArray(platforms)
+      ? platforms.filter((p) => validPlatforms.includes(p))
+      : ['instagram', 'facebook', 'twitter', 'linkedin'];
+
+    const fakeJob = {
+      id: jobId,
+      name: 'repurpose-content',
+      data: {
+        type: 'repurposed_content',
+        tenantId: req.tenantId,
+        sourceUrl: url,
+        sourceTitle: extracted.title,
+        extractedText: extracted.text,
+        platforms: requestedPlatforms.length ? requestedPlatforms : ['instagram', 'facebook', 'twitter', 'linkedin'],
+      },
+    };
+
+    const result = await contentGenerator.execute(fakeJob);
+    res.json({ ...result, source: extracted.source, sourceTitle: extracted.title });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /api/content/calendar — scheduled content in a date range
 router.get('/calendar', async (req, res, next) => {
   try {
