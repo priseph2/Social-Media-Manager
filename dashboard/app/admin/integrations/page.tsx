@@ -126,7 +126,7 @@ export default function IntegrationsPage() {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
   const [syncError, setSyncError] = useState('');
-  const [schemaResult, setSchemaResult] = useState<unknown>(null);
+  const [schemaResult, setSchemaResult] = useState<Record<string, unknown> | null>(null);
   const [schemaLoading, setSchemaLoading] = useState(false);
 
   useEffect(() => {
