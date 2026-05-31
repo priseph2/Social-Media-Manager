@@ -395,6 +395,122 @@ function ScheduledTab() {
   );
 }
 
+// ── Product Image Uploader ────────────────────────────────────────────────────
+
+function ProductImageUploader({
+  imageUrl,
+  setImageUrl,
+  wasProcessed,
+  setWasProcessed,
+}: {
+  imageUrl: string;
+  setImageUrl: (url: string) => void;
+  wasProcessed: boolean;
+  setWasProcessed: (v: boolean) => void;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState('');
+
+  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { setError('Image must be under 10 MB'); return; }
+
+    setUploading(true);
+    setError('');
+    setImageUrl('');
+    setWasProcessed(false);
+
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${API_URL}/api/media/product-image`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': file.type,
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: file,
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error((j as { error?: string }).error || 'Upload failed');
+      }
+      const { url, wasBackgroundRemoved } = await res.json() as { url: string; wasBackgroundRemoved: boolean };
+      setImageUrl(url);
+      setWasProcessed(wasBackgroundRemoved);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Upload failed');
+    } finally {
+      setUploading(false);
+      // Reset input so the same file can be re-uploaded if needed
+      e.target.value = '';
+    }
+  }
+
+  return (
+    <div className="md:col-span-2">
+      <label className="block text-xs font-medium text-slate-600 mb-1">
+        Product Image <span className="text-slate-400 font-normal">(optional)</span>
+      </label>
+      <p className="text-xs text-slate-400 mb-2">
+        Upload your product photo — the background is automatically removed so it composites cleanly onto the AI‑generated scene.
+      </p>
+
+      {imageUrl ? (
+        <div className="flex items-start gap-4 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+          {/* Checkerboard bg visualises transparency */}
+          <div
+            className="w-20 h-20 rounded-lg overflow-hidden shrink-0 border border-slate-200"
+            style={{ backgroundImage: 'repeating-conic-gradient(#cbd5e1 0% 25%, #f8fafc 0% 50%)', backgroundSize: '14px 14px' }}
+          >
+            <img src={imageUrl} alt="Product" className="w-full h-full object-contain" />
+          </div>
+          <div className="flex-1 min-w-0">
+            {wasProcessed ? (
+              <p className="text-xs text-emerald-600 font-medium mb-1">✓ Background removed</p>
+            ) : (
+              <p className="text-xs text-amber-600 font-medium mb-1">Background not removed — set REMOVEBG_API_KEY to enable automatic removal</p>
+            )}
+            <p className="text-xs text-slate-400 mb-2 truncate">{imageUrl.split('/').pop()}</p>
+            <button
+              type="button"
+              onClick={() => { setImageUrl(''); setWasProcessed(false); }}
+              className="text-xs text-red-500 hover:text-red-700 font-medium"
+            >
+              Remove image
+            </button>
+          </div>
+        </div>
+      ) : (
+        <label className={`flex items-center gap-3 p-4 border-2 border-dashed border-slate-200 rounded-lg cursor-pointer hover:border-indigo-300 hover:bg-indigo-50/30 transition-colors ${uploading ? 'opacity-60 pointer-events-none' : ''}`}>
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            onChange={handleFile}
+            className="sr-only"
+          />
+          <div className="text-slate-400 shrink-0">
+            {uploading ? <Spinner /> : (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+            )}
+          </div>
+          <div>
+            <p className="text-sm text-slate-600 font-medium">
+              {uploading ? 'Uploading & removing background…' : 'Click to upload product photo'}
+            </p>
+            <p className="text-xs text-slate-400">JPG, PNG, WebP — max 10 MB</p>
+          </div>
+        </label>
+      )}
+
+      {error && <p className="text-xs text-red-500 mt-1.5">{error}</p>}
+    </div>
+  );
+}
+
 // ── Tab: Caption / Image Brief generator ─────────────────────────────────────
 
 function CreateTab() {
@@ -410,14 +526,18 @@ function CreateTab() {
   const [result, setResult] = useState<GenerateResult | null>(null);
   const [error, setError] = useState('');
 
+  // Product image state
+  const [productImageUrl, setProductImageUrl] = useState('');
+  const [productImageProcessed, setProductImageProcessed] = useState(false);
+
   async function handleGenerate() {
     setLoading(true);
     setError('');
     setResult(null);
     try {
       const body = contentType === 'social_caption'
-        ? { type: 'social_caption', platform, theme, product: product || undefined }
-        : { type: 'image_brief', platform, format: imgFormat, concept, product: product || undefined, mood: mood || undefined, copyOverlay: copyOverlay || undefined };
+        ? { type: 'social_caption', platform, theme, product: product || undefined, productImageUrl: productImageUrl || undefined }
+        : { type: 'image_brief', platform, format: imgFormat, concept, product: product || undefined, mood: mood || undefined, copyOverlay: copyOverlay || undefined, productImageUrl: productImageUrl || undefined };
       const data = await apiFetch<GenerateResult>('/api/content/generate', { method: 'POST', body: JSON.stringify(body) });
       setResult(data);
     } catch (e: unknown) {
@@ -487,6 +607,13 @@ function CreateTab() {
               </div>
             </>
           )}
+
+          <ProductImageUploader
+            imageUrl={productImageUrl}
+            setImageUrl={setProductImageUrl}
+            wasProcessed={productImageProcessed}
+            setWasProcessed={setProductImageProcessed}
+          />
         </div>
 
         {error && <p className="mt-3 text-sm text-red-500">{error}</p>}

@@ -47,12 +47,14 @@ function extractVisualKeywords(text, max = 12) {
  * The caption is used only as thematic/visual context — never rendered as text
  * inside the image (AI text rendering is unreliable and produces garbled output).
  *
- * @param {string} captionText  - The approved social caption
- * @param {string} platform     - Target social platform
- * @param {object} brandConfig  - Nested brand config from brand_configs table
+ * @param {string} captionText      - The approved social caption
+ * @param {string} platform         - Target social platform
+ * @param {object} brandConfig      - Nested brand config from brand_configs table
+ * @param {object} [options]
+ * @param {boolean} [options.hasProductImage] - A transparent product PNG will be composited on top
  * @returns {string}
  */
-function buildImagePrompt(captionText, platform, brandConfig = {}) {
+function buildImagePrompt(captionText, platform, brandConfig = {}, options = {}) {
   const companyName    = brandConfig.identity?.name        || '';
   const website        = brandConfig.identity?.website     || '';
   const brandVoice     = brandConfig.voice?.tone           || '';
@@ -72,6 +74,22 @@ function buildImagePrompt(captionText, platform, brandConfig = {}) {
   const visualTheme = extractVisualKeywords(captionText);
   const theme = visualTheme ? `Visual theme: ${visualTheme}.` : '';
 
+  // When the tenant's product photo is being composited on top, generate a
+  // complementary background scene rather than a full product shot. The centre
+  // of the frame must stay visually open so the product sits naturally.
+  const noTextInstruction = options.hasProductImage
+    ? [
+        'IMPORTANT: Generate a BACKGROUND SCENE or atmospheric environment ONLY.',
+        'A transparent product photograph will be composited on top programmatically — do NOT place any product, object, or strong focal element in the centre of the frame.',
+        'Focus on mood, lighting, texture, bokeh, and environmental context that complement the product.',
+        'Soft depth-of-field background. No text, logos, or watermarks.',
+      ].join(' ')
+    : 'IMPORTANT: Do NOT include any text, words, letters, numbers, logos, or typography anywhere in the image. Pure visual scene only.';
+
+  const frameNote = options.hasProductImage
+    ? 'Centre of frame should be clear and uncluttered — space reserved for product overlay. Leave bottom-quarter clear for text overlay.'
+    : 'Photorealistic or polished illustration. Leave bottom-quarter of frame clear for text overlay. No watermarks. No borders.';
+
   return [
     `Create a high-quality social media photograph or illustration for ${companyName || 'a brand'}.`,
     theme,
@@ -81,9 +99,8 @@ function buildImagePrompt(captionText, platform, brandConfig = {}) {
     style,
     voice,
     domain,
-    // Explicit no-text instruction prevents AI from hallucinating garbled words in the scene.
-    'IMPORTANT: Do NOT include any text, words, letters, numbers, logos, or typography anywhere in the image. Pure visual scene only.',
-    'Photorealistic or polished illustration. Leave bottom-quarter of frame clear for text overlay. No watermarks. No borders.',
+    noTextInstruction,
+    frameNote,
   ].filter(Boolean).join(' ');
 }
 

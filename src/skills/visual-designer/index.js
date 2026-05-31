@@ -51,17 +51,26 @@ class VisualDesigner extends BaseSkill {
       // 3. Build prompt from approved variation text
       const effectivePlatform = platform || content.platform || 'default';
       const captionText = content.variations[content.selectedVariation ?? 0]?.text || '';
-      const prompt = buildImagePrompt(captionText, effectivePlatform, brandConfig);
+      const productImageUrl = content.input?.productImageUrl || null;
+      const prompt = buildImagePrompt(captionText, effectivePlatform, brandConfig, {
+        hasProductImage: Boolean(productImageUrl),
+      });
 
-      this.log.info('Generating image', { contentId, platform: effectivePlatform, provider: 'resolving...' });
+      this.log.info('Generating image', { contentId, platform: effectivePlatform, provider: 'resolving...', hasProductImage: Boolean(productImageUrl) });
 
       // 4. Get provider adapter and generate image
       const adapter = await getImageAdapter(tenantId);
       const { imageBuffer, model, costUsd } = await adapter.generate(prompt, effectivePlatform);
 
+      // 4b. If tenant uploaded a product image, composite it onto the background
+      let compositeBuffer = imageBuffer;
+      if (productImageUrl) {
+        compositeBuffer = await this._compositeProductImage(imageBuffer, productImageUrl);
+      }
+
       // 5. Composite brand overlays (logo + hook text + website URL) onto generated image
       const hookText = extractHook(captionText);
-      const finalBuffer = await addBrandOverlay(imageBuffer, brandConfig, hookText);
+      const finalBuffer = await addBrandOverlay(compositeBuffer, brandConfig, hookText);
 
       // 6. Upload to Supabase Storage
       const imageUrl = await this._uploadImage(tenantId, contentId, finalBuffer);
@@ -90,6 +99,51 @@ class VisualDesigner extends BaseSkill {
       await Content.findByIdAndUpdate(contentId, { imageStatus: 'failed' }).catch(() => {});
       this.log.error('Image generation failed', { contentId, error: err.message });
       throw err;
+    }
+  }
+
+  /**
+   * Composite a (preferably transparent-background) product image onto a generated
+   * background. The product is scaled to ~55% of image width, centered horizontally,
+   * and positioned in the upper-centre of the frame so the bottom gradient + text
+   * overlay remain readable.
+   *
+   * Falls back to the original background buffer on any error.
+   */
+  async _compositeProductImage(backgroundBuffer, productImageUrl) {
+    let sharp;
+    try { sharp = require('sharp'); } catch { return backgroundBuffer; }
+
+    try {
+      const res = await fetch(productImageUrl, { signal: AbortSignal.timeout(10000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status} fetching product image`);
+      const productBuffer = Buffer.from(await res.arrayBuffer());
+
+      const bg = sharp(backgroundBuffer);
+      const { width, height } = await bg.metadata();
+
+      // Scale product to at most 55% of image width; keep aspect ratio; PNG for alpha
+      const targetW = Math.round(width * 0.55);
+      const resized = await sharp(productBuffer)
+        .resize({ width: targetW, fit: 'inside' })
+        .png()
+        .toBuffer();
+
+      const { width: pw, height: ph } = await sharp(resized).metadata();
+
+      // Centre horizontally; top of product sits at ~15% from top, leaving bottom ~40% clear for overlay
+      const left = Math.round((width - pw) / 2);
+      const top  = Math.max(0, Math.round(height * 0.15));
+
+      this.log.info('[VisualDesigner] Compositing product image', { productImageUrl, targetW, pw, ph, left, top });
+
+      return bg
+        .composite([{ input: resized, left, top, blend: 'over' }])
+        .png()
+        .toBuffer();
+    } catch (err) {
+      this.log.warn('[VisualDesigner] Product image composite failed — using background only', { error: err.message });
+      return backgroundBuffer;
     }
   }
 

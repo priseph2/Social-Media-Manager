@@ -65,6 +65,13 @@ const ENV_GROUPS: Array<{
     ],
   },
   {
+    group: 'Image Processing',
+    description: 'Product image background removal',
+    vars: [
+      { key: 'REMOVEBG_API_KEY', label: 'remove.bg API Key', notes: 'From remove.bg → API Keys. If unset, product images are used as-is (no BG removal).' },
+    ],
+  },
+  {
     group: 'Social Media',
     description: 'Social scheduling and posting',
     vars: [
@@ -347,6 +354,9 @@ GOOGLE_API_KEY=AIza...          # Imagen 4 Fast / Standard providers
 HEYGEN_API_KEY=...              # Global fallback; per-tenant key takes priority
 HEYGEN_AVATAR_ID=...            # Default avatar ID (from /api/admin/heygen/avatars)
 HEYGEN_VOICE_ID=...             # Default voice ID (from /api/admin/heygen/voices)
+
+# Image Processing — background removal for product photos
+REMOVEBG_API_KEY=...            # From remove.bg → Account → API Keys (optional)
 
 # Payments
 PAYSTACK_SECRET_KEY=sk_live_...
