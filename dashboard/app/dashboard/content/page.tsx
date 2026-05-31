@@ -1037,11 +1037,19 @@ interface RepurposePost {
 }
 
 interface RepurposeResult {
+  contentId?: string;
   summary: string;
   posts: RepurposePost[];
   keyInsights: string[];
   source: string;
   sourceTitle: string;
+}
+
+interface PlatformImageState {
+  childContentId: string | null;
+  imageStatus: 'idle' | 'generating' | 'generated' | 'failed';
+  imageUrl: string | null;
+  imageGeneratingAt: string | null;
 }
 
 const REPURPOSE_PLATFORMS = [
@@ -1067,6 +1075,43 @@ function RepurposeTab() {
   const [result, setResult] = useState<RepurposeResult | null>(null);
   const [error, setError] = useState('');
   const [copiedPlatform, setCopiedPlatform] = useState<string | null>(null);
+  // keyed by platform → state for that platform's image
+  const [imageStates, setImageStates] = useState<Record<string, PlatformImageState>>({});
+  // keyed by platform → childContentId, only while actively polling
+  const [pollingIds, setPollingIds] = useState<Record<string, string>>({});
+
+  // Poll every 3 s for any platforms currently generating an image
+  useEffect(() => {
+    const entries = Object.entries(pollingIds);
+    if (entries.length === 0) return;
+
+    const interval = setInterval(async () => {
+      await Promise.all(entries.map(async ([platform, childContentId]) => {
+        try {
+          const status = await apiFetch<{ imageStatus: string; imageUrl: string | null; imageGeneratingAt: string | null }>(
+            `/api/content/${childContentId}/image-status`
+          );
+          if (status.imageStatus === 'generated' || status.imageStatus === 'failed') {
+            setImageStates((prev) => ({
+              ...prev,
+              [platform]: {
+                ...prev[platform],
+                imageStatus: status.imageStatus as 'generated' | 'failed',
+                imageUrl: status.imageUrl,
+              },
+            }));
+            setPollingIds((prev) => {
+              const next = { ...prev };
+              delete next[platform];
+              return next;
+            });
+          }
+        } catch { /* ignore transient poll errors */ }
+      }));
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [pollingIds]);
 
   function togglePlatform(id: string) {
     setSelectedPlatforms((prev) =>
@@ -1079,6 +1124,8 @@ function RepurposeTab() {
     setLoading(true);
     setError('');
     setResult(null);
+    setImageStates({});
+    setPollingIds({});
     try {
       const data = await apiFetch<RepurposeResult>('/api/content/repurpose', {
         method: 'POST',
@@ -1089,6 +1136,24 @@ function RepurposeTab() {
       setError((e as Error).message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleGenerateImage(platform: string) {
+    if (!result?.contentId) return;
+    setImageStates((prev) => ({
+      ...prev,
+      [platform]: { childContentId: null, imageStatus: 'generating', imageUrl: null, imageGeneratingAt: new Date().toISOString() },
+    }));
+    try {
+      const { childContentId } = await apiFetch<{ childContentId: string }>(
+        '/api/content/repurpose-image',
+        { method: 'POST', body: JSON.stringify({ contentId: result.contentId, platform }) }
+      );
+      setImageStates((prev) => ({ ...prev, [platform]: { ...prev[platform], childContentId } }));
+      setPollingIds((prev) => ({ ...prev, [platform]: childContentId }));
+    } catch (e: unknown) {
+      setImageStates((prev) => ({ ...prev, [platform]: { ...prev[platform], imageStatus: 'failed' } }));
     }
   }
 
@@ -1156,14 +1221,12 @@ function RepurposeTab() {
         <div className="space-y-4">
           {/* Source summary */}
           <Card className="bg-slate-50">
-            <div className="flex items-start gap-3">
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">
-                  Source — {result.source === 'youtube_transcript' ? 'YouTube transcript' : result.source === 'youtube_title_only' ? 'YouTube (no captions found)' : 'Article'}
-                </p>
-                <p className="text-sm font-medium text-slate-800 truncate">{result.sourceTitle}</p>
-                <p className="text-sm text-slate-600 mt-2 leading-relaxed">{result.summary}</p>
-              </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">
+                Source — {result.source === 'youtube_transcript' ? 'YouTube transcript' : result.source === 'youtube_title_only' ? 'YouTube (no captions found)' : 'Article'}
+              </p>
+              <p className="text-sm font-medium text-slate-800 truncate">{result.sourceTitle}</p>
+              <p className="text-sm text-slate-600 mt-2 leading-relaxed">{result.summary}</p>
             </div>
           </Card>
 
@@ -1183,37 +1246,97 @@ function RepurposeTab() {
           )}
 
           {/* Per-platform posts */}
-          {result.posts.map((post) => (
-            <Card key={post.platform}>
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-base">{PLATFORM_ICONS[post.platform] || '📄'}</span>
-                  <span className="font-semibold text-slate-800 capitalize">{post.platform}</span>
-                  {post.angle && (
-                    <span className="text-xs bg-indigo-50 text-indigo-600 border border-indigo-100 px-2 py-0.5 rounded-full">
-                      {post.angle}
-                    </span>
+          {result.posts.map((post) => {
+            const imgState: PlatformImageState = imageStates[post.platform] ?? { childContentId: null, imageStatus: 'idle', imageUrl: null, imageGeneratingAt: null };
+            return (
+              <Card key={post.platform}>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">{PLATFORM_ICONS[post.platform] || '📄'}</span>
+                    <span className="font-semibold text-slate-800 capitalize">{post.platform}</span>
+                    {post.angle && (
+                      <span className="text-xs bg-indigo-50 text-indigo-600 border border-indigo-100 px-2 py-0.5 rounded-full">
+                        {post.angle}
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => copyCaption(post)}
+                    className="text-xs text-slate-400 hover:text-slate-700 transition-colors px-2 py-1 rounded hover:bg-slate-50"
+                  >
+                    {copiedPlatform === post.platform ? '✓ Copied' : 'Copy'}
+                  </button>
+                </div>
+
+                <div className="bg-slate-50 rounded-lg p-4 text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">
+                  {post.caption}
+                </div>
+
+                {post.hashtags?.length > 0 && (
+                  <p className="text-xs text-blue-500 mt-2">
+                    {post.hashtags.map((h) => `#${h.replace(/^#/, '')}`).join(' ')}
+                  </p>
+                )}
+
+                {/* Image generation section */}
+                <div className="mt-4 pt-4 border-t border-slate-100">
+                  {imgState.imageStatus === 'idle' && (
+                    <button
+                      onClick={() => handleGenerateImage(post.platform)}
+                      disabled={!result.contentId}
+                      className="text-xs text-slate-500 hover:text-slate-800 border border-slate-200 hover:border-slate-400 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40"
+                    >
+                      Generate image
+                    </button>
+                  )}
+
+                  {imgState.imageStatus === 'generating' && (
+                    <ImageGenerationProgress since={imgState.imageGeneratingAt ?? undefined} />
+                  )}
+
+                  {imgState.imageStatus === 'generated' && imgState.imageUrl && (
+                    <div className="space-y-2">
+                      <img
+                        src={imgState.imageUrl}
+                        alt={`${post.platform} generated image`}
+                        className="w-full rounded-lg object-cover max-h-64"
+                      />
+                      <div className="flex gap-3">
+                        <a
+                          href={imgState.imageUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-slate-400 hover:text-slate-600 transition-colors"
+                        >
+                          Open full size
+                        </a>
+                        <button
+                          onClick={() => {
+                            setImageStates((prev) => ({ ...prev, [post.platform]: { childContentId: null, imageStatus: 'idle', imageUrl: null, imageGeneratingAt: null } }));
+                          }}
+                          className="text-xs text-slate-400 hover:text-slate-600 transition-colors"
+                        >
+                          Regenerate
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {imgState.imageStatus === 'failed' && (
+                    <div className="flex items-center gap-3">
+                      <p className="text-xs text-red-500">Image generation failed.</p>
+                      <button
+                        onClick={() => handleGenerateImage(post.platform)}
+                        className="text-xs text-slate-500 hover:text-slate-800 border border-slate-200 px-3 py-1 rounded-lg transition-colors"
+                      >
+                        Retry
+                      </button>
+                    </div>
                   )}
                 </div>
-                <button
-                  onClick={() => copyCaption(post)}
-                  className="text-xs text-slate-400 hover:text-slate-700 transition-colors px-2 py-1 rounded hover:bg-slate-50"
-                >
-                  {copiedPlatform === post.platform ? '✓ Copied' : 'Copy'}
-                </button>
-              </div>
-
-              <div className="bg-slate-50 rounded-lg p-4 text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">
-                {post.caption}
-              </div>
-
-              {post.hashtags?.length > 0 && (
-                <p className="text-xs text-blue-500 mt-2">
-                  {post.hashtags.map((h) => `#${h.replace(/^#/, '')}`).join(' ')}
-                </p>
-              )}
-            </Card>
-          ))}
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>

@@ -295,6 +295,71 @@ router.post('/repurpose', checkOpsLimit, async (req, res, next) => {
   }
 });
 
+/**
+ * POST /api/content/repurpose-image
+ * Spin up image generation for one platform post from a repurposed-content doc.
+ * Creates a child social_caption doc (pre-approved) and queues image generation.
+ * Body: { contentId, platform }
+ */
+router.post('/repurpose-image', async (req, res, next) => {
+  try {
+    if (!isMongoAvailable()) return res.status(503).json({ error: 'Content database not available' });
+
+    const { contentId, platform } = req.body;
+    if (!contentId || !platform) return res.status(400).json({ error: 'contentId and platform are required' });
+
+    const parent = await Content.findOne({ _id: contentId, tenantId: req.tenantId, type: 'repurposed_content' });
+    if (!parent) return res.status(404).json({ error: 'Repurposed content not found' });
+
+    const post = parent.repurposedPosts?.find((p) => p.platform === platform);
+    if (!post) return res.status(404).json({ error: `No post found for platform: ${platform}` });
+
+    // Create a child content doc — pre-approved since the parent already passed brand review
+    const child = await Content.create({
+      tenantId: req.tenantId,
+      type: 'social_caption',
+      platform,
+      input: parent.input,
+      variations: [{ text: post.caption, hashtags: post.hashtags || [] }],
+      selectedVariation: 0,
+      brandReview: { status: 'approved' },
+      imageStatus: 'generating',
+      imageGeneratingAt: new Date(),
+      jobId: `repurpose-img-${Date.now()}`,
+    });
+
+    const childId = String(child._id);
+
+    await enqueue(
+      QUEUES.IMAGE_GENERATION,
+      'generate-image',
+      { contentId: childId, tenantId: req.tenantId, platform },
+      { priority: PRIORITY.NORMAL }
+    );
+
+    res.json({ childContentId: childId });
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /api/content/:id/image-status
+ * Poll image generation progress for a content document.
+ */
+router.get('/:id/image-status', async (req, res, next) => {
+  try {
+    if (!isMongoAvailable()) return res.status(503).json({ error: 'Database not available' });
+    const doc = await Content.findOne({ _id: req.params.id, tenantId: req.tenantId })
+      .select('imageStatus imageUrl imageGeneratingAt imageModel');
+    if (!doc) return res.status(404).json({ error: 'Content not found' });
+    res.json({
+      imageStatus: doc.imageStatus || null,
+      imageUrl: doc.imageUrl || null,
+      imageGeneratingAt: doc.imageGeneratingAt ? doc.imageGeneratingAt.toISOString() : null,
+      imageModel: doc.imageModel || null,
+    });
+  } catch (err) { next(err); }
+});
+
 // GET /api/content/calendar — scheduled content in a date range
 router.get('/calendar', async (req, res, next) => {
   try {

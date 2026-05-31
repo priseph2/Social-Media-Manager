@@ -66,7 +66,7 @@ class ContentGenerator extends BaseSkill {
 
     const contentId = await this._persist(result, job.id, tenantId);
     await this._sendForBrandReview(result, job.id, tenantId, contentId);
-    return result;
+    return { ...result, contentId };
   }
 
   _guidelinesBlock(brandConfig) {
