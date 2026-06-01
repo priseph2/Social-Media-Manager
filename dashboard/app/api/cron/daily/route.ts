@@ -1,40 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || process.env.API_URL || '';
+const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || '';
 const CRON_SECRET = process.env.CRON_SECRET || '';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 30;
 
 /**
- * Vercel Cron — fires daily at 07:00 UTC (08:00 WAT).
- * Calls the backend /api/cron/trigger endpoint which wakes the Render
- * server and kicks off daily content generation for all active tenants.
+ * Vercel Cron — fires at 07:00 UTC (08:00 WAT).
+ * By this point the /api/cron/wake ping (06:55 UTC) has already started
+ * the Render server, so the backend should respond quickly.
  *
- * Configure in Vercel dashboard:
- *   CRON_SECRET  — shared secret (must match the backend env var)
- *   API_URL      — backend base URL (e.g. https://your-app.onrender.com)
+ * Required Vercel env vars:
+ *   NEXT_PUBLIC_API_URL  — backend base URL (e.g. https://your-app.onrender.com)
+ *   CRON_SECRET          — shared secret (must match Render env var)
  */
 export async function GET(req: NextRequest) {
-  // Vercel signs cron requests with the Authorization header when
-  // CRON_SECRET is set in the project settings.
   const authHeader = req.headers.get('authorization');
   if (CRON_SECRET && authHeader !== `Bearer ${CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   if (!BACKEND_URL) {
-    return NextResponse.json({ error: 'API_URL not configured' }, { status: 500 });
+    return NextResponse.json({ error: 'NEXT_PUBLIC_API_URL not configured' }, { status: 500 });
   }
 
   try {
+    // Server is already warm — 8s is enough for the enqueue calls
     const res = await fetch(`${BACKEND_URL}/api/cron/trigger`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'x-cron-secret': CRON_SECRET,
       },
-      signal: AbortSignal.timeout(25000),
+      signal: AbortSignal.timeout(8000),
     });
 
     const body = await res.json().catch(() => ({}));
