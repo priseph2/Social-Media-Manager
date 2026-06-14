@@ -14,7 +14,7 @@ async function getActiveTenantIds() {
     const fallback = process.env.DEFAULT_TENANT_ID;
     return fallback ? [fallback] : [];
   }
-  const { data } = await db.from('tenants').select('id').eq('status', 'active');
+  const { data } = await db.from('tenants').select('id').not('status', 'eq', 'suspended');
   return (data || []).map((t) => t.id);
 }
 

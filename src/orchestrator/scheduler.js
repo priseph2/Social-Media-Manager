@@ -18,13 +18,13 @@ async function getActiveTenantIds() {
   const { data } = await supabase
     .from('tenants')
     .select('id')
-    .eq('status', 'active');
+    .not('status', 'eq', 'suspended');
   return (data || []).map((t) => t.id);
 }
 
 function initScheduler() {
-  // 8:00 AM daily (WAT) — daily content creation for each active tenant
-  schedule('0 8 * * *', 'daily-content-creation', async () => {
+  // 7:00 AM UTC daily (= 8:00 AM WAT) — daily content creation for each active tenant
+  schedule('0 7 * * *', 'daily-content-creation', async () => {
     const tenantIds = await getActiveTenantIds();
     logger.info(`[Scheduler] Daily content creation for ${tenantIds.length} tenant(s)`);
     for (const tenantId of tenantIds) {
@@ -38,8 +38,8 @@ function initScheduler() {
     }
   });
 
-  // 6:00 PM daily — analytics aggregation for each active tenant
-  schedule('0 18 * * *', 'daily-analytics', async () => {
+  // 5:00 PM UTC daily (= 6:00 PM WAT) — analytics aggregation for each active tenant
+  schedule('0 17 * * *', 'daily-analytics', async () => {
     const tenantIds = await getActiveTenantIds();
     logger.info(`[Scheduler] Daily analytics for ${tenantIds.length} tenant(s)`);
     for (const tenantId of tenantIds) {
@@ -52,8 +52,8 @@ function initScheduler() {
     }
   });
 
-  // Sunday 6:00 PM — weekly newsletter for each active tenant
-  schedule('0 18 * * 0', 'weekly-newsletter', async () => {
+  // Sunday 5:00 PM UTC (= 6:00 PM WAT) — weekly newsletter for each active tenant
+  schedule('0 17 * * 0', 'weekly-newsletter', async () => {
     const tenantIds = await getActiveTenantIds();
     logger.info(`[Scheduler] Weekly newsletter for ${tenantIds.length} tenant(s)`);
     for (const tenantId of tenantIds) {
@@ -126,7 +126,7 @@ async function _checkTrialExpiry() {
 }
 
 function schedule(cronExpr, name, fn) {
-  const task = cron.schedule(cronExpr, fn, { timezone: 'Africa/Lagos' });
+  const task = cron.schedule(cronExpr, fn);
   scheduledJobs.push({ name, cronExpr, task });
   logger.debug(`Scheduled: ${name} (${cronExpr})`);
 }
