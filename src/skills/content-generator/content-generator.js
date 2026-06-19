@@ -520,7 +520,8 @@ class ContentGenerator extends BaseSkill {
   }
 
   async _sendForBrandReview(result, jobId, tenantId, contentId) {
-    if (!result.selectedContent) return;
+    // Repurposed content is scheduled per-platform via child docs; no top-level queue step needed.
+    if (!result.selectedContent || result.type === 'repurposed_content') return;
     await enqueue(QUEUES.BRAND_REVIEW, 'review-content', {
       tenantId,
       content: result.selectedContent,
