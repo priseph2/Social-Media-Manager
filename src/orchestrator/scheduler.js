@@ -23,8 +23,8 @@ async function getActiveTenantIds() {
 }
 
 function initScheduler() {
-  // 7:00 AM UTC daily (= 8:00 AM WAT) — daily content creation for each active tenant
-  schedule('0 7 * * *', 'daily-content-creation', async () => {
+  // 8:00 PM GMT daily — daily content creation for each active tenant
+  schedule('0 20 * * *', 'daily-content-creation', async () => {
     const tenantIds = await getActiveTenantIds();
     logger.info(`[Scheduler] Daily content creation for ${tenantIds.length} tenant(s)`);
     for (const tenantId of tenantIds) {
