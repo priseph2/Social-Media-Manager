@@ -6,10 +6,10 @@ const CRON_SECRET = process.env.CRON_SECRET || '';
 export const dynamic = 'force-dynamic';
 
 /**
- * Vercel Cron — fires at 06:55 UTC (5 min before the daily content job).
- * Sends a /health ping to wake the Render backend from sleep, then returns
- * immediately — we do NOT wait for a full response. Render takes ~30s to
- * wake; by 07:00 UTC it will be fully up and ready for the content trigger.
+ * Vercel Cron — fires at 19:55 UTC (5 min before the daily content job).
+ * Sends a /health ping to the Railway backend to confirm it's reachable,
+ * then returns immediately — we do NOT wait for a full response.
+ * Railway is always-on so this is just a warm-up confirmation ping.
  */
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get('authorization');

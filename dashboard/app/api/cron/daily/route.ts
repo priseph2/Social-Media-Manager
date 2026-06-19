@@ -6,13 +6,13 @@ const CRON_SECRET = process.env.CRON_SECRET || '';
 export const dynamic = 'force-dynamic';
 
 /**
- * Vercel Cron — fires at 07:00 UTC (08:00 WAT).
- * By this point the /api/cron/wake ping (06:55 UTC) has already started
- * the Render server, so the backend should respond quickly.
+ * Vercel Cron — fires at 20:00 UTC (8 PM GMT / 9 PM WAT).
+ * By this point the /api/cron/wake ping (19:55 UTC) has already confirmed
+ * the backend is reachable, so this request should respond quickly.
  *
  * Required Vercel env vars:
- *   NEXT_PUBLIC_API_URL  — backend base URL (e.g. https://your-app.onrender.com)
- *   CRON_SECRET          — shared secret (must match Render env var)
+ *   NEXT_PUBLIC_API_URL  — backend base URL (e.g. https://your-app.railway.app)
+ *   CRON_SECRET          — shared secret (must match Railway env var)
  */
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get('authorization');
